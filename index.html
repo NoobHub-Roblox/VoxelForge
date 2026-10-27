@@ -1518,6 +1518,16 @@ const TexturePainters = {
   wool_yellow(ctx, seed){ paintNoise(ctx, '#e8d23a', seed, {variance:12, speckleChance:0.15, speckleColor:'#c2ac28', speckleVariance:12}); },
   wool_green(ctx, seed){ paintNoise(ctx, '#4f9a3f', seed, {variance:12, speckleChance:0.15, speckleColor:'#3c7a30', speckleVariance:12}); },
   wool_black(ctx, seed){ paintNoise(ctx, '#26262b', seed, {variance:10, speckleChance:0.12, speckleColor:'#141417', speckleVariance:10}); },
+  wool_orange(ctx, seed){ paintNoise(ctx, '#e07a1f', seed, {variance:12, speckleChance:0.15, speckleColor:'#ae5f18', speckleVariance:12}); },
+  wool_magenta(ctx, seed){ paintNoise(ctx, '#b84cc0', seed, {variance:12, speckleChance:0.15, speckleColor:'#8f3b95', speckleVariance:12}); },
+  wool_light_blue(ctx, seed){ paintNoise(ctx, '#5ea8e0', seed, {variance:12, speckleChance:0.15, speckleColor:'#4983ae', speckleVariance:12}); },
+  wool_lime(ctx, seed){ paintNoise(ctx, '#80c71f', seed, {variance:12, speckleChance:0.15, speckleColor:'#639b18', speckleVariance:12}); },
+  wool_pink(ctx, seed){ paintNoise(ctx, '#e88fb0', seed, {variance:12, speckleChance:0.15, speckleColor:'#b46f89', speckleVariance:12}); },
+  wool_gray(ctx, seed){ paintNoise(ctx, '#4a4f54', seed, {variance:12, speckleChance:0.15, speckleColor:'#393d41', speckleVariance:12}); },
+  wool_light_gray(ctx, seed){ paintNoise(ctx, '#9a9fa0', seed, {variance:12, speckleChance:0.15, speckleColor:'#787c7c', speckleVariance:12}); },
+  wool_cyan(ctx, seed){ paintNoise(ctx, '#157f98', seed, {variance:12, speckleChance:0.15, speckleColor:'#106376', speckleVariance:12}); },
+  wool_purple(ctx, seed){ paintNoise(ctx, '#7a2eb0', seed, {variance:12, speckleChance:0.15, speckleColor:'#5f2389', speckleVariance:12}); },
+  wool_brown(ctx, seed){ paintNoise(ctx, '#6a4426', seed, {variance:12, speckleChance:0.15, speckleColor:'#52351d', speckleVariance:12}); },
   terracotta(ctx, seed){ paintNoise(ctx, '#a55d3a', seed, {variance:14, speckleChance:0.1, speckleColor:'#8a4a2c', speckleVariance:14}); },
   melon(ctx, seed){
     paintNoise(ctx, '#4f9a3f', seed, {variance:10});
@@ -1654,6 +1664,33 @@ const BLOCKS = {
   // network fetch. It never gets meshed (renderInvisible/solid:false), so
   // it draws nothing and can't be walked into.
   62: { name:'test_block',    tex:{all:'barrier'}, hardness:0, solid:false, transparent:true, renderInvisible:true, unbreakable:true, creativeOnly:true },
+  // More wool colours (ids 160-169) and a flat carpet for every colour (170-185). Kept above the item ids (100-159).
+  160: { name:'wool_orange', tex:{all:'wool_orange'}, hardness:0.3 },
+  161: { name:'wool_magenta', tex:{all:'wool_magenta'}, hardness:0.3 },
+  162: { name:'wool_light_blue', tex:{all:'wool_light_blue'}, hardness:0.3 },
+  163: { name:'wool_lime', tex:{all:'wool_lime'}, hardness:0.3 },
+  164: { name:'wool_pink', tex:{all:'wool_pink'}, hardness:0.3 },
+  165: { name:'wool_gray', tex:{all:'wool_gray'}, hardness:0.3 },
+  166: { name:'wool_light_gray', tex:{all:'wool_light_gray'}, hardness:0.3 },
+  167: { name:'wool_cyan', tex:{all:'wool_cyan'}, hardness:0.3 },
+  168: { name:'wool_purple', tex:{all:'wool_purple'}, hardness:0.3 },
+  169: { name:'wool_brown', tex:{all:'wool_brown'}, hardness:0.3 },
+  170: { name:'carpet_white', tex:{all:'wool_white'}, texFrom:31, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  171: { name:'carpet_red', tex:{all:'wool_red'}, texFrom:32, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  172: { name:'carpet_blue', tex:{all:'wool_blue'}, texFrom:33, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  173: { name:'carpet_yellow', tex:{all:'wool_yellow'}, texFrom:34, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  174: { name:'carpet_green', tex:{all:'wool_green'}, texFrom:35, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  175: { name:'carpet_black', tex:{all:'wool_black'}, texFrom:36, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  176: { name:'carpet_orange', tex:{all:'wool_orange'}, texFrom:160, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  177: { name:'carpet_magenta', tex:{all:'wool_magenta'}, texFrom:161, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  178: { name:'carpet_light_blue', tex:{all:'wool_light_blue'}, texFrom:162, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  179: { name:'carpet_lime', tex:{all:'wool_lime'}, texFrom:163, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  180: { name:'carpet_pink', tex:{all:'wool_pink'}, texFrom:164, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  181: { name:'carpet_gray', tex:{all:'wool_gray'}, texFrom:165, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  182: { name:'carpet_light_gray', tex:{all:'wool_light_gray'}, texFrom:166, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  183: { name:'carpet_cyan', tex:{all:'wool_cyan'}, texFrom:167, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  184: { name:'carpet_purple', tex:{all:'wool_purple'}, texFrom:168, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
+  185: { name:'carpet_brown', tex:{all:'wool_brown'}, texFrom:169, transparent:true, noCollide:true, boxes:[[0,0,0,1,1/16,1]], hardness:0.1 },
 };
 // Non-block hand items (tools, sticks) — id space 100+ so they never collide
 // with placeable block ids. These live in the same inventory/hotbar system
@@ -1689,6 +1726,15 @@ const ITEMS = {
 const ALL_DEFS = Object.assign({}, BLOCKS, ITEMS);
 for(const id in ITEMS){ ITEMS[id].id = +id; }
 const BLOCK_IDS_SOLID_HOTBAR = [1,2,3,4,5,6,7,8,9,11,12,18,19,21,22,23,150,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,59,60,61,20,62]; // placeable in default hotbar/inventory (barrier + test_block kept last: creative-only marker blocks, not normal building blocks)
+
+// Ore vein recipes (id, attempts per 16^3 cell, chance per attempt, blob chain length, blob radius, fill).
+// Later entries overwrite earlier ones where veins overlap, so rarer ores win.
+const ORE_VEIN_TYPES = [
+  { id:13, tries:3, chance:0.50, steps:[3,5], r:[1.4,2.0], fill:0.92 }, // coal
+  { id:14, tries:2, chance:0.60, steps:[2,4], r:[1.2,1.7], fill:0.92 }, // iron
+  { id:15, tries:1, chance:0.45, steps:[2,3], r:[1.1,1.5], fill:0.95 }, // gold
+  { id:16, tries:1, chance:0.40, steps:[1,2], r:[1.0,1.4], fill:0.95 }, // diamond
+];
 
 // Everything the creative palette offers: every placeable block (not air, not
 // the transient flowing-liquid levels), then every hand item, then the
@@ -1793,6 +1839,7 @@ const SHAPE = (function(){
     ids.door['lower'+f+'2'] = hide(lowerBase, Object.assign({ doorHalf:'lower', texFrom:21 }, mm));
     ids.door['upper'+f+'2'] = hide(upperBase, Object.assign({ doorHalf:'upper', texFrom:doorTopId }, mm));
   }
+  next = Math.max(next, 200); // hidden ids added from here on stay above the item id range (100-159)
   // furnace: front texture faces the player. facing f = the way the player looked, so the front is on the opposite side.
   const FURN_FRONT = [[0,1],[-1,0],[0,-1],[1,0]];
   ids.furnace = {};
@@ -1803,6 +1850,11 @@ const SHAPE = (function(){
     Object.defineProperty(BLOCKS, id, { value:d, enumerable:false, writable:true, configurable:true });
     ids.furnace[f] = id;
   }
+  // upside-down stairs (placed against the top half of a wall or the underside of a block)
+  const sbU = f=> [ rot([0,0.5,0,1,1,1],f), rot([0,0,0,1,0.5,0.5],f) ];
+  [22,23].forEach(baseId=>{
+    for(let f=0; f<4; f++) ids.stairs[baseId+'_'+f+'u'] = hide(BLOCKS[baseId], { facing:f, flip:true, boxes:sbU(f), texFrom:baseId, dropId:baseId });
+  });
   const FACE_OFF = [[0,-1],[1,0],[0,1],[-1,0]]; // [dx,dz] for facing 0..3 (matches facingOf)
   return {
     doorTopId,
@@ -1810,7 +1862,7 @@ const SHAPE = (function(){
     bedOff:(f)=> FACE_OFF[f],
     furnace:(f)=> ids.furnace[f],
     door:(half,f,open)=> ids.door[half+f+(open==='m'?2:open?1:0)],
-    stairs:(baseId,f)=> ids.stairs[baseId+'_'+f],
+    stairs:(baseId,f,flip)=> ids.stairs[baseId+'_'+f+(flip?'u':'')],
     facingOf:(dir)=> Math.abs(dir.x)>Math.abs(dir.z) ? (dir.x>0?1:3) : (dir.z>0?2:0),
   };
 })();
@@ -1853,6 +1905,7 @@ const HARDCODED_BLOCK_TEXTURES = {};
     const id = +idStr;
     const b = BLOCKS[id];
     if(!b.tex || b.name==='air' || b.renderInvisible) continue;
+    if(b.texFrom) continue; // carpets reuse their wool block's texture (and image file)
     // Flowing liquid variants share their source block's texture via
     // faceSlotKey's paint_<family> redirect — skip generating duplicate
     // entries for them (45-51 mirror 10, 53-58 mirror 52).
@@ -3247,9 +3300,49 @@ class World{
     return 0; // air everywhere else inside the clearing
   }
 
+  // Ore veins: short random-walk chains of small blobs, seeded per 16^3 cell so they
+  // are identical whichever chunk generates first and can cross chunk borders.
+  // Returns a Uint8Array (ore id per local block, 0 = none) or null above the rock.
+  _oreVeinMap(cx,cy,cz){
+    const CS = CHUNK_SIZE;
+    if(cy*CS > 150) return null;
+    const map = new Uint8Array(CS*CS*CS);
+    const x0 = cx*CS, y0 = cy*CS, z0 = cz*CS, seed = this.seed;
+    let any = false;
+    for(const t of ORE_VEIN_TYPES){
+      for(let dx=-1; dx<=1; dx++) for(let dy=-1; dy<=1; dy++) for(let dz=-1; dz<=1; dz++){
+        const kx = cx+dx, ky = cy+dy, kz = cz+dz;
+        for(let a=0; a<t.tries; a++){
+          const R = (i)=> hash3(kx*8+a, ky*32+t.id, kz*64+i, seed+9100) * 2; // 0..1
+          if(R(0) > t.chance) continue;
+          let px = kx*CS + R(1)*CS, py = ky*CS + R(2)*CS, pz = kz*CS + R(3)*CS;
+          let th = R(4)*Math.PI*2, ph = (R(5)-0.5)*1.4;
+          const steps = t.steps[0] + Math.floor(R(6)*(t.steps[1]-t.steps[0]+1));
+          for(let st=0; st<steps; st++){
+            const r = t.r[0] + R(10+st*3)*(t.r[1]-t.r[0]);
+            const minX = Math.max(x0, Math.floor(px-r)), maxX = Math.min(x0+CS-1, Math.ceil(px+r));
+            const minY = Math.max(y0, Math.floor(py-r)), maxY = Math.min(y0+CS-1, Math.ceil(py+r));
+            const minZ = Math.max(z0, Math.floor(pz-r)), maxZ = Math.min(z0+CS-1, Math.ceil(pz+r));
+            for(let bx=minX; bx<=maxX; bx++) for(let by=minY; by<=maxY; by++) for(let bz=minZ; bz<=maxZ; bz++){
+              const ddx = bx+0.5-px, ddy = by+0.5-py, ddz = bz+0.5-pz;
+              if(ddx*ddx + ddy*ddy + ddz*ddz > r*r) continue;
+              if(hash3(bx,by,bz,seed+55)*2 > t.fill) continue;
+              map[((by-y0)*CS + (bz-z0))*CS + (bx-x0)] = t.id; any = true;
+            }
+            th += (R(11+st*3)-0.5)*1.5; ph += (R(12+st*3)-0.5)*0.8;
+            const stepLen = r*1.1;
+            px += Math.cos(th)*Math.cos(ph)*stepLen; pz += Math.sin(th)*Math.cos(ph)*stepLen; py += Math.sin(ph)*stepLen;
+          }
+        }
+      }
+    }
+    return any ? map : null;
+  }
+
   generateChunk(chunk){
     if(chunk.generated) return;
     const {cx,cy,cz} = chunk;
+    const veinMap = this._oreVeinMap(cx,cy,cz);
     for(let lx=0; lx<CHUNK_SIZE; lx++){
       for(let lz=0; lz<CHUNK_SIZE; lz++){
         const wx = cx*CHUNK_SIZE+lx, wz = cz*CHUNK_SIZE+lz;
@@ -3291,11 +3384,10 @@ class World{
             else if(wy===MIN_Y) id = 17;
             else if(wy < FLAT_SURFACE_Y-4){
               id = 3;
-              const oreRoll = hash3(wx,wy,wz,this.seed+55) * 2;
-              if(wy < FLAT_SURFACE_Y-20 && oreRoll > 0.9978) id = 16;
-              else if(wy < FLAT_SURFACE_Y-12 && oreRoll > 0.9945) id = 15;
-              else if(oreRoll > 0.9870) id = 14;
-              else if(oreRoll > 0.9780) id = 13;
+              const ov = veinMap ? veinMap[(ly*CHUNK_SIZE+lz)*CHUNK_SIZE+lx] : 0;
+              if(ov===16){ if(wy < FLAT_SURFACE_Y-20) id = 16; }
+              else if(ov===15){ if(wy < FLAT_SURFACE_Y-12) id = 15; }
+              else if(ov) id = ov;
             }
             else if(wy < FLAT_SURFACE_Y-1) id = 2;
             else if(wy === FLAT_SURFACE_Y-1) id = 1;
@@ -3318,28 +3410,12 @@ class World{
             const cave = fbm2(wx*0.07, wy*0.07 + wz*0.03, this.seed+777, 3, 2.1, 0.5);
             const isCave = cave > CAVE_T && wy < surfaceY-6 && wy>MIN_Y+2;
             if(isCave){ id = 0; }
-            // ore veins — boosted near cave walls so exposed ore is easy to
-            // spot while exploring, but still findable (rarer) in solid rock
-            if(id===3){
-              // is this stone block touching an open cave void on any side?
-              const nearCave =
-                (fbm2((wx+1)*0.07, wy*0.07 + wz*0.03, this.seed+777, 3, 2.1, 0.5) > CAVE_T) ||
-                (fbm2((wx-1)*0.07, wy*0.07 + wz*0.03, this.seed+777, 3, 2.1, 0.5) > CAVE_T) ||
-                (fbm2(wx*0.07, (wy+1)*0.07 + wz*0.03, this.seed+777, 3, 2.1, 0.5) > CAVE_T) ||
-                (fbm2(wx*0.07, (wy-1)*0.07 + wz*0.03, this.seed+777, 3, 2.1, 0.5) > CAVE_T) ||
-                (fbm2(wx*0.07, wy*0.07 + (wz+1)*0.03, this.seed+777, 3, 2.1, 0.5) > CAVE_T) ||
-                (fbm2(wx*0.07, wy*0.07 + (wz-1)*0.03, this.seed+777, 3, 2.1, 0.5) > CAVE_T);
-
-              const oreRoll = hash3(wx,wy,wz,this.seed+55) * 2; // hash3 only fills 0..0.5
-              const diamondT = nearCave ? 0.9900 : 0.9965;
-              const goldT    = nearCave ? 0.9800 : 0.9915;
-              const ironT    = nearCave ? 0.9500 : 0.9780;
-              const coalT    = nearCave ? 0.9100 : 0.9620;
-
-              if(wy < surfaceY-20 && oreRoll > diamondT) id = 16; // diamond, deep
-              else if(wy < surfaceY-12 && oreRoll > goldT) id = 15; // gold
-              else if(oreRoll > ironT) id = 14; // iron
-              else if(oreRoll > coalT) id = 13; // coal
+            // ore veins (see _oreVeinMap): clustered chains of ore instead of single scattered blocks
+            if(id===3 && veinMap){
+              const ov = veinMap[(ly*CHUNK_SIZE+lz)*CHUNK_SIZE+lx];
+              if(ov===16){ if(wy < surfaceY-20) id = 16; }       // diamond, deep only
+              else if(ov===15){ if(wy < surfaceY-12) id = 15; }  // gold
+              else if(ov) id = ov;                               // iron / coal
             }
           } else if(wy < surfaceY-1){
             id = (biome==='desert' || biome==='beach') ? 5
@@ -4083,6 +4159,23 @@ const RECIPES = [
   { pattern:[[31,31,31],[8,8,8],[0,0,0]], out:{id:150,count:1} },
   // wool (no sheep yet): 4 sticks make 2 white wool
   { pattern:[[100,100,0],[100,100,0],[0,0,0]], out:{id:31,count:2} },
+  // carpets: 2 wool of one colour -> 3 carpets
+  { pattern:[[31,31,0],[0,0,0],[0,0,0]], out:{id:170,count:3} },
+  { pattern:[[32,32,0],[0,0,0],[0,0,0]], out:{id:171,count:3} },
+  { pattern:[[33,33,0],[0,0,0],[0,0,0]], out:{id:172,count:3} },
+  { pattern:[[34,34,0],[0,0,0],[0,0,0]], out:{id:173,count:3} },
+  { pattern:[[35,35,0],[0,0,0],[0,0,0]], out:{id:174,count:3} },
+  { pattern:[[36,36,0],[0,0,0],[0,0,0]], out:{id:175,count:3} },
+  { pattern:[[160,160,0],[0,0,0],[0,0,0]], out:{id:176,count:3} },
+  { pattern:[[161,161,0],[0,0,0],[0,0,0]], out:{id:177,count:3} },
+  { pattern:[[162,162,0],[0,0,0],[0,0,0]], out:{id:178,count:3} },
+  { pattern:[[163,163,0],[0,0,0],[0,0,0]], out:{id:179,count:3} },
+  { pattern:[[164,164,0],[0,0,0],[0,0,0]], out:{id:180,count:3} },
+  { pattern:[[165,165,0],[0,0,0],[0,0,0]], out:{id:181,count:3} },
+  { pattern:[[166,166,0],[0,0,0],[0,0,0]], out:{id:182,count:3} },
+  { pattern:[[167,167,0],[0,0,0],[0,0,0]], out:{id:183,count:3} },
+  { pattern:[[168,168,0],[0,0,0],[0,0,0]], out:{id:184,count:3} },
+  { pattern:[[169,169,0],[0,0,0],[0,0,0]], out:{id:185,count:3} },
   // wood door
   { pattern:[[8,8,0],[8,8,0],[8,8,0]], out:{id:21,count:3} },
   // stone stairs (simplified: 6 stone -> 4 stairs)
@@ -6468,7 +6561,7 @@ class Game{
       if(x===feet.x && z===feet.z && (y+1===feet.y || y+1===feet.y+1)) return -1;
       this._setShaped(x,y,z, SHAPE.door('lower',f,false));
       this._setShaped(x,y+1,z, SHAPE.door('upper',f,false));
-    } else this._setShaped(x,y,z, SHAPE.stairs(heldId,f));
+    } else this._setShaped(x,y,z, SHAPE.stairs(heldId,f,!!this._placeFlip));
     return 1;
   }
   _useBed(x,y,z){
@@ -6515,6 +6608,16 @@ class Game{
     if(BLOCKS[hit.id].bedPart){ this._useBed(hit.x,hit.y,hit.z); return; } // bed: sleep / set spawn
     if(BLOCKS[hit.id].doorHalf){ this._toggleDoor(hit.x,hit.y,hit.z); this._swingOnce(); return; } // door: open/close
     const px = hit.x+hit.normal[0], py = hit.y+hit.normal[1], pz = hit.z+hit.normal[2];
+    // stairs go upside-down when you click the underside of a block or the top half of a wall
+    this._placeFlip = false;
+    if(hit.normal[1] < 0) this._placeFlip = true;
+    else if(hit.normal[1] === 0){
+      const { origin, dir } = this.getLookRay();
+      const t = hit.normal[0] !== 0 ? (hit.x + (hit.normal[0] > 0 ? 1 : 0) - origin.x) / dir.x
+                                    : (hit.z + (hit.normal[2] > 0 ? 1 : 0) - origin.z) / dir.z;
+      const fy = origin.y + dir.y*t - hit.y;
+      if(Number.isFinite(fy) && fy >= 0.5) this._placeFlip = true;
+    }
     if(py>MAX_Y || py<MIN_Y){ this.addChatLine('System', py>MAX_Y ? `Build limit reached (y ${MAX_Y}).` : `World floor reached (y ${MIN_Y}).`, false); return; }
     // don't place inside player
     const feet = this.pos.clone().floor();
@@ -6980,7 +7083,7 @@ class Game{
           const id = this.world.getBlock(bx,by,bz);
           if(id===0) continue;
           const b = BLOCKS[id];
-          if(!b.solid) continue;
+          if(!b.solid || b.noCollide) continue;
           if(!b.boxes) return true;
           for(const q of b.boxes){
             if(maxX>bx+q[0] && minX<bx+q[3] && maxY>by+q[1] && minY<by+q[4] && maxZ>bz+q[2] && minZ<bz+q[5]) return true;
