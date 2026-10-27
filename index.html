@@ -3847,6 +3847,31 @@ function buildPlayerModel(palette, skinCanvas){
   return { group, parts, canvas };
 }
 
+// ---- Zombie skin: assets/mobs/zombie.png (standard 64x64 sheet), with the same
+// image embedded as a fallback so the zombie is never untextured. One shared
+// canvas feeds every zombie; it fills in as soon as the image loads.
+const ZOMBIE_SKIN_URLS = ['assets/mobs/zombie.png', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAEJElEQVR4AeyaPWsVQRSG5140BhMiQQuDKFhYWQQru4gophLRzj+gjYJlQEVEBPuIoJ2VXURsjNiYTrCxEPwogljEwiCGpPADrj4LbzgMs1/ZudldWOHxvGfOmdkz5856l7v2Xc6f848uDuDM7bMDH8aFH5Ofs3zt4dwGbKysO5iaOegsVM64UIxxaSx+k8ltAJsAfxOMWRRnTLoNNrcBbdhElRq7BuR1b+3zj9SU5WcfU2MEsuYSbwKVT0BaE9qweT6AQg1gM8AEYTeOBsXaZPv6vg7ZmWunBvqaw64sfXVCmxyd3O2EYrYZrAGh9RnTOnXZ5ASMTY07oAi+xgQbYxxCMeLKlSWPcSygQXEs46wJ6Drp2yJUnAqyvtXE8QFtYQw0hgb5WN9nrC76E0cmnQgVkRX7u/4nNCUZy5pHQl6cnO0guQXyLvT65qID5aFhx/hODbXWFmrAiTuzDrRLNOD73w6MtYnMBmRtLitmG1A0z87ZTh1sAEVDWiF+zPf9eXlxP3+Yvr92//HJBz3L2/lD7tOL6U3wLeQ+vfSkB77G/7Bwzi2/urzJ6pc5B4wRA7SYuf5uII5fXRz4Bfo+ORaeJSx+fp4fPAEjY3sdaDIa5Ndtd03sd6A6+FoF+WVssAFlFmh7brABvzdWHWhzaJBft/219s2B6tAjuPwytn/0wr2BJW+yzUVzP6bdw4dPP3QWf202ARrnWGstLGv7KFf25/crzpKXr3myyQng/gYNoqGorzzfLv//x9Af24pPY0Bz0VDUV17IJg0IBWKNxWpCrHr8dYbeAC5IEwDdNLalAU3btK2na4DtRlP16MiNpLQ9++4ntqyfTEr5q/EngE3zlGc3XcZP2ffmcOMboErZtDS2rM+cEK1pQKj4GGNdA+giz/mABjSgAQ1oQAO66eTV13+/MNcjCVsU5WNh6e50D97Mz/YAHYIYKIYG+b5lbZ7z+Z0BXt563gM0EAN+Y7A+GoixRhbJLcDGs5L8mM1nA348ls/akLYeMaEcfOkiNmlAkcRQjm1EKL7dY/7mfT9UT6UGhBZs21jXgLZ9YrHr7U5A7I62bb3uBLTtE4tdb3cCYne0bet1J6Btn1jsersTELujda9X9vrRTwDvC7PIK9B/t2ff/aPz5peNR28ABfBeEdCABnQReO8HyuUHUJAf0w6lATELHPZaQ2kAvxeCikeD/DzLK3NQXpX3/1ojzVZugH+/p11I434+vr3vlSfL73oWm4tW3lZt5QZwYe5vQAMa0IAGNKABPX7gWPL/few9jwbigAY0oAFdlSgNqFpEnfO7BtTZ/SZcu/YTwNtfGmHf/pbxya1C7Q2geDbPg45tRhmfNbZKIxrAZu0Gyvp2blndiAaULTpmfteAmN1s41pRTgDP+aAGoKGor7yt2Kpz/gEAAP//mCnyBQAAAAZJREFUAwCo9J+vPMCpJAAAAABJRU5ErkJggg=='];
+let ZOMBIE_SKIN_CANVAS = null;
+function getZombieSkinCanvas(){
+  if(ZOMBIE_SKIN_CANVAS) return ZOMBIE_SKIN_CANVAS;
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+  const x = c.getContext('2d'); x.fillStyle = '#4a8a4a'; x.fillRect(0,0,64,64);
+  ZOMBIE_SKIN_CANVAS = c;
+  const tryLoad = i=>{
+    if(i >= ZOMBIE_SKIN_URLS.length) return;
+    const img = new Image();
+    img.onload = ()=>{
+      x.clearRect(0,0,64,64); x.imageSmoothingEnabled = false; x.drawImage(img,0,0,64,64);
+      ZOMBIE_SKIN_TEX.forEach(t=>{ t.needsUpdate = true; });
+    };
+    img.onerror = ()=>{ console.warn('Zombie skin failed:', ZOMBIE_SKIN_URLS[i]); tryLoad(i+1); };
+    img.src = ZOMBIE_SKIN_URLS[i];
+  };
+  tryLoad(0);
+  return c;
+}
+const ZOMBIE_SKIN_TEX = [];
+
 // Restore a custom skin saved by Skin Studio.
 (function loadStoredSkin(){
   try{
@@ -6553,23 +6578,13 @@ class Game{
       const l4=legGeo(); l4.position.set(0.18,0.2,-0.3);
       group.add(body,spot,head,l1,l2,l3,l4);
       Object.assign(parts,{body,head,legs:[l1,l2,l3,l4]});
-    } else { // hostile (zombie-ish)
-      const skin = 0x4a8a4a;
-      const shirt = 0x2a5a7a;
-      const head = box(0.45,0.45,0.45, skin);
-      head.position.set(0,1.55,0);
-      const body = box(0.5,0.75,0.3, shirt);
-      body.position.set(0,1.05,0);
-      const armL = box(0.2,0.7,0.2, skin);
-      armL.position.set(-0.35,1.05,0);
-      const armR = box(0.2,0.7,0.2, skin);
-      armR.position.set(0.35,1.05,0);
-      const legL = box(0.2,0.7,0.2, 0x2a3a5a);
-      legL.position.set(-0.13,0.35,0);
-      const legR = box(0.2,0.7,0.2, 0x2a3a5a);
-      legR.position.set(0.13,0.35,0);
-      group.add(head,body,armL,armR,legL,legR);
-      Object.assign(parts,{head,body,armL,armR,legL,legR});
+    } else { // hostile: textured zombie built from the standard player rig
+      const built = buildPlayerModel(null, getZombieSkinCanvas());
+      built.group.traverse(o=>{ if(o.material && o.material.map && !ZOMBIE_SKIN_TEX.includes(o.material.map)) ZOMBIE_SKIN_TEX.push(o.material.map); });
+      built.group.rotation.set(0,0,0);
+      Object.assign(parts, built.parts);
+      group.add(built.group);
+      parts.armL.rotation.x = parts.armR.rotation.x = -1.45; // arms out in front
     }
     return { group, parts };
   }
@@ -6713,7 +6728,7 @@ class Game{
       m.group.rotation.y = m.yaw;
       const swing = Math.sin(m.bobT)*0.4;
       m.parts.legL.rotation.x = swing; m.parts.legR.rotation.x = -swing;
-      m.parts.armL.rotation.x = -swing*0.6; m.parts.armR.rotation.x = swing*0.6;
+      m.parts.armL.rotation.x = -1.45 + swing*0.12; m.parts.armR.rotation.x = -1.45 - swing*0.12; // zombie reach
     }
   }
 
