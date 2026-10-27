@@ -1680,6 +1680,9 @@ const ITEMS = {
   118: { name:'raw_gold', isItem:true, icon:'raw_gold' },
   119: { name:'raw_meat', isItem:true, icon:'raw_meat' },
   120: { name:'cooked_meat', isItem:true, icon:'cooked_meat' },
+  121: { name:'zombie_spawn_egg', isItem:true, icon:'egg_zombie', spawnEgg:'zombie' },
+  122: { name:'cow_spawn_egg', isItem:true, icon:'egg_cow', spawnEgg:'cow' },
+  123: { name:'pig_spawn_egg', isItem:true, icon:'egg_pig', spawnEgg:'pig' },
 };
 // Merge ITEMS into a combined lookup so BLOCKS[id] and ITEMS[id] can both be
 // resolved with one table where convenient (definitions, not the placeable list).
@@ -6503,6 +6506,12 @@ class Game{
     const headY = feet.y+1;
     if(px===feet.x && pz===feet.z && (py===feet.y||py===headY)) return;
     const heldId = this.selectedBlock;
+    if(ITEMS[heldId] && ITEMS[heldId].spawnEgg){ // spawn egg: creative only, spawns the mob on the clicked face
+      if(GAME_MODE!=='creative') return;
+      this.spawnMobOfKind(ITEMS[heldId].spawnEgg, px+0.5, py, pz+0.5);
+      this._swingOnce();
+      return;
+    }
     if(!BLOCKS[heldId] || BLOCKS[heldId].name==='air') return; // tools/items can't be placed
     if(BLOCKS[heldId].creativeOnly && GAME_MODE!=='creative') return; // barrier etc: level-design tool, not a survival block
     if(GAME_MODE!=='creative'){
@@ -6621,8 +6630,11 @@ class Game{
     }
   }
 
-  spawnAnimal(x,y,z){
-    const kind = Math.random()<0.5 ? 'cow' : 'pig';
+  spawnMobOfKind(kind,x,y,z){
+    if(kind==='zombie') this.spawnHostile(x,y,z); else this.spawnAnimal(x,y,z,kind);
+  }
+  spawnAnimal(x,y,z,forceKind){
+    const kind = forceKind || (Math.random()<0.5 ? 'cow' : 'pig');
     const { group, parts } = this.buildMobModel(kind);
     group.position.set(x,y,z);
     this.scene.add(group);
@@ -8902,6 +8914,20 @@ const ItemIconPainters = {
     ctx.beginPath(); ctx.arc(14,12,3,0,Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(21,16,2.4,0,Math.PI*2); ctx.fill();
   },
+  _egg(ctx, base, spot){ // spawn egg: oval shell with spots, shaded edge + highlight
+    ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(16,27,8,2.2,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=base; ctx.beginPath(); ctx.ellipse(16,16,9,12,0,0,Math.PI*2); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.ellipse(16,16,9,12,0,0,Math.PI*2); ctx.clip();
+    ctx.fillStyle=spot;
+    [[12,10,3],[20,13,3.4],[11,19,3.2],[19,22,3],[16,16,2]].forEach(([x,y,r])=>{ ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); });
+    ctx.fillStyle='rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.ellipse(21,18,6,11,0,-0.9,1.6); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle='rgba(0,0,0,0.55)'; ctx.lineWidth=1.2; ctx.beginPath(); ctx.ellipse(16,16,9,12,0,0,Math.PI*2); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.ellipse(12.5,9.5,1.8,3,0.4,0,Math.PI*2); ctx.fill();
+  },
+  egg_zombie(ctx){ ItemIconPainters._egg(ctx,'#4a8a4a','#2a5a7a'); },
+  egg_cow(ctx){ ItemIconPainters._egg(ctx,'#e8e0d0','#3a2a20'); },
+  egg_pig(ctx){ ItemIconPainters._egg(ctx,'#e8a0a8','#d88090'); },
   raw_meat(ctx){
     ctx.fillStyle='#c95a5a'; ctx.beginPath(); ctx.ellipse(16,16,10,7,0.3,0,Math.PI*2); ctx.fill();
     ctx.fillStyle='#e88a8a'; ctx.beginPath(); ctx.ellipse(13,13,3,2,0.3,0,Math.PI*2); ctx.fill();
