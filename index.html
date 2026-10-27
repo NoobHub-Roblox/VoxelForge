@@ -1590,7 +1590,7 @@ const BLOCKS = {
   16: { name:'diamond_ore',tex:{all:'diamond_ore'}, hardness:3.5, tool:'pickaxe', minTier:2 },
   17: { name:'bedrock',    tex:{all:'bedrock'}, unbreakable:true, hardness:0 },
   18: { name:'crafting_table', tex:{top:'crafting_table_top', bottom:'wood_top', side:'crafting_table_side'}, hardness:1.0, tool:'axe' },
-  19: { name:'furnace',    tex:{top:'furnace_side', bottom:'furnace_side', side:'furnace_side', front:'furnace_front'}, hardness:3.0, tool:'pickaxe' },
+  19: { name:'furnace',    tex:{top:'furnace_side', bottom:'furnace_side', side:'furnace_side', front:'furnace_front'}, hardness:3.0, tool:'pickaxe', isFurnace:true, frontN:[0,1] },
   20: { name:'barrier',    tex:{all:'barrier'}, hardness:0, unbreakable:true, creativeOnly:true },
   150: { name:'bed', tex:{top:'bed_top_foot', bottom:'wood_top', side:'bed_side'}, transparent:true, hardness:0.4, tool:'axe' },
   21: { name:'door_wood',  tex:{all:'door_wood'}, transparent:true, hardness:1.0, tool:'axe' },
@@ -1793,11 +1793,22 @@ const SHAPE = (function(){
     ids.door['lower'+f+'2'] = hide(lowerBase, Object.assign({ doorHalf:'lower', texFrom:21 }, mm));
     ids.door['upper'+f+'2'] = hide(upperBase, Object.assign({ doorHalf:'upper', texFrom:doorTopId }, mm));
   }
+  // furnace: front texture faces the player. facing f = the way the player looked, so the front is on the opposite side.
+  const FURN_FRONT = [[0,1],[-1,0],[0,-1],[1,0]];
+  ids.furnace = {};
+  for(let f=0; f<4; f++){
+    if(f===0){ ids.furnace[0] = 19; BLOCKS[19].frontN = FURN_FRONT[0]; BLOCKS[19].facing = 0; continue; }
+    const base = BLOCKS[19], id = next++;
+    const d = Object.assign({}, base, { id, facing:f, frontN:FURN_FRONT[f], texFrom:19, dropId:19 });
+    Object.defineProperty(BLOCKS, id, { value:d, enumerable:false, writable:true, configurable:true });
+    ids.furnace[f] = id;
+  }
   const FACE_OFF = [[0,-1],[1,0],[0,1],[-1,0]]; // [dx,dz] for facing 0..3 (matches facingOf)
   return {
     doorTopId,
     bed:(part,f)=> ids.bed[part+f],
     bedOff:(f)=> FACE_OFF[f],
+    furnace:(f)=> ids.furnace[f],
     door:(half,f,open)=> ids.door[half+f+(open==='m'?2:open?1:0)],
     stairs:(baseId,f)=> ids.stairs[baseId+'_'+f],
     facingOf:(dir)=> Math.abs(dir.x)>Math.abs(dir.z) ? (dir.x>0?1:3) : (dir.z>0?2:0),
@@ -2114,7 +2125,8 @@ function buildMesherTables(){
     exists: new Uint8Array(N), transparent: new Uint8Array(N), liquid: new Uint8Array(N),
     family: new Uint8Array(N), isSource: new Uint8Array(N), invisible: new Uint8Array(N),
     flow: new Float32Array(N), boxes: new Array(N).fill(null),
-    faceRect: new Float32Array(N*3*4), faceLayer: new Uint8Array(N*3), faceAlpha: new Float32Array(N*3),
+    faceRect: new Float32Array(N*4*4), faceLayer: new Uint8Array(N*4), faceAlpha: new Float32Array(N*4),
+    fnx: new Int8Array(N), fnz: new Int8Array(N), // direction of a block's 'front' face (0,0 = none)
     faces: FACE_DEFS.map(fd => ({
       nx: fd.normal[0], ny: fd.normal[1], nz: fd.normal[2],
       kind: MESH_FACE_KEYS.indexOf(fd.key),
@@ -2132,11 +2144,13 @@ function buildMesherTables(){
     T.invisible[id] = def.renderInvisible ? 1 : 0;
     T.flow[id] = def.flowLevel === undefined ? 7 : def.flowLevel;
     if(def.name === 'air') continue;
-    for(let f = 0; f < 3; f++){
-      const key = faceMaterialKey(id, MESH_FACE_KEYS[f]);
+    if(def.frontN){ T.fnx[id] = def.frontN[0]; T.fnz[id] = def.frontN[1]; }
+    const hasFront = !!((BLOCKS[def.texFrom || id].tex || {}).front);
+    for(let f = 0; f < 4; f++){
+      const key = faceMaterialKey(id, f < 3 ? MESH_FACE_KEYS[f] : (hasFront ? 'front' : 'side'));
       const paint = paintNameForKey(key);
       const r = BlockAtlas.rect(key);
-      const o = (id*3 + f);
+      const o = (id*4 + f);
       T.faceRect.set(r, o*4);
       T.faceLayer[o] = layerForPaint(paint);
       T.faceAlpha[o] = alphaForPaint(paint);
@@ -2153,7 +2167,7 @@ function vfMeshChunk(job, T){
   const L = lights ? Math.floor(lights.length/3) : 0;
   const LR = T.lightRadius, LR2 = LR*LR;
   const trans = T.transparent, liq = T.liquid, fam = T.family, flow = T.flow, isSrc = T.isSource, inv = T.invisible;
-  const fr = T.faceRect, fl = T.faceLayer, fa = T.faceAlpha, faces = T.faces, boxes = T.boxes;
+  const fr = T.faceRect, fl = T.faceLayer, fa = T.faceAlpha, faces = T.faces, boxes = T.boxes, fnx = T.fnx, fnz = T.fnz;
 
   const pos = [[],[],[]], nor = [[],[],[]], uvs = [[],[],[]], col = [[],[],[]], idx = [[],[],[]];
   const vc = [0,0,0];
@@ -2206,7 +2220,7 @@ function vfMeshChunk(job, T){
               const fd = faces[fi];
               const edge = fd.nx===1 ? q[3]>=1 : fd.nx===-1 ? q[0]<=0 : fd.ny===1 ? q[4]>=1 : fd.ny===-1 ? q[1]<=0 : fd.nz===1 ? q[5]>=1 : q[2]<=0;
               if(edge){ const nb = blockAt(x+fd.nx, y+fd.ny, z+fd.nz); if(nb !== 0 && !trans[nb]) continue; }
-              const o = id*3 + fd.kind, li = fl[o];
+              const o = id*4 + fd.kind, li = fl[o];
               const P = pos[li], N = nor[li], U = uvs[li], C = col[li], I = idx[li];
               const start = vc[li];
               const u0 = fr[o*4], v0 = fr[o*4+1], u1 = fr[o*4+2], v1 = fr[o*4+3];
@@ -2245,7 +2259,7 @@ function vfMeshChunk(job, T){
           const nb = blockAt(x+fd.nx, y+fd.ny, z+fd.nz);
           if(!shouldDraw(id, nb)) continue;
 
-          const o = id*3 + fd.kind;
+          const o = id*4 + ((fnx[id]|fnz[id]) && fnx[id]===fd.nx && fnz[id]===fd.nz ? 3 : fd.kind);
           const li = fl[o];
           const P = pos[li], N = nor[li], U = uvs[li], C = col[li], I = idx[li];
           const start = vc[li];
@@ -6432,7 +6446,7 @@ class Game{
   }
   // 0 = not a shaped item, 1 = placed, -1 = refused (no room)
   _placeShaped(x,y,z,heldId){
-    if(heldId!==21 && heldId!==22 && heldId!==23 && heldId!==150) return 0;
+    if(heldId!==21 && heldId!==22 && heldId!==23 && heldId!==150 && heldId!==19) return 0;
     const f = SHAPE.facingOf(this.getLookRay().dir);
     if(heldId===150){
       const [dx,dz] = SHAPE.bedOff(f), hx = x+dx, hz = z+dz;
@@ -6446,6 +6460,7 @@ class Game{
       this._setShaped(hx,y,hz, SHAPE.bed('head',f));
       return 1;
     }
+    if(heldId===19){ this._setShaped(x,y,z, SHAPE.furnace(f)); return 1; }
     if(heldId===21){
       const above = this.world.getBlock(x,y+1,z);
       if(above!==0 && !BLOCKS[above].liquid) return -1;
@@ -6496,7 +6511,7 @@ class Game{
     const hit = this.raycastBlock(6);
     if(!hit) return;
     if(hit.id===18){ this.toggleCraftingPanel(true); return; } // crafting_table: interact instead of place
-    if(hit.id===19){ this.toggleFurnacePanel(hit.x,hit.y,hit.z); return; } // furnace: interact instead of place
+    if(BLOCKS[hit.id].isFurnace){ this.toggleFurnacePanel(hit.x,hit.y,hit.z); return; } // furnace: interact instead of place
     if(BLOCKS[hit.id].bedPart){ this._useBed(hit.x,hit.y,hit.z); return; } // bed: sleep / set spawn
     if(BLOCKS[hit.id].doorHalf){ this._toggleDoor(hit.x,hit.y,hit.z); this._swingOnce(); return; } // door: open/close
     const px = hit.x+hit.normal[0], py = hit.y+hit.normal[1], pz = hit.z+hit.normal[2];
