@@ -4734,6 +4734,7 @@ class Game{
           document.getElementById('texturePanel').style.display='none';
           document.getElementById('settingsPanel').style.display='none';
           document.getElementById('furnacePanel').style.display='none';
+          this.openFurnaceKey = null;
           document.getElementById('recipeBookPanel').style.display='none';
           if(document.getElementById('craftingPanel')) this.returnCraftGridToInventory();
           this.returnCraftGrid2ToInventory();
@@ -8689,6 +8690,7 @@ class Game{
         if(this._pvpCd > 0) this._pvpCd -= delta;
         if(!this.paused) this.updateDayNight(delta);
         if(!this.paused && !this.dead) this.updateMobs(delta);
+        if(!this.paused) this.updateFurnaces(delta); // smelting ticks for every placed furnace, open or not
         if(!this.paused) this.updateFootsteps(delta);
 
         this.updateDebugPanel();
@@ -10279,6 +10281,10 @@ window.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('closeCraft').addEventListener('click', ()=>{
     document.getElementById('craftingPanel').style.display='none';
     if(gameInstance) gameInstance.returnCraftGridToInventory();
+  });
+  document.getElementById('closeFurnace').addEventListener('click', ()=>{
+    document.getElementById('furnacePanel').style.display='none';
+    if(gameInstance) gameInstance.openFurnaceKey = null;
   });
   document.getElementById('openRecipeBookBtn').addEventListener('click', ()=>{ if(gameInstance) gameInstance.openRecipeBook(3); });
   document.getElementById('openRecipeBookBtn2').addEventListener('click', ()=>{ if(gameInstance) gameInstance.openRecipeBook(2); });
