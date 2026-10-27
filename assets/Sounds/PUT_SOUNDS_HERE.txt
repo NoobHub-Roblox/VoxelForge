@@ -1,6 +1,0 @@
-Put these files here (exact names, case-sensitive):
-Pickup.mp3
-Grass_Break.mp3
-Wood_Break.mp3
-WoodDoor_Open.mp3
-WoodDoor_Close.mp3
