@@ -6508,7 +6508,8 @@ class Game{
     const heldId = this.selectedBlock;
     if(ITEMS[heldId] && ITEMS[heldId].spawnEgg){ // spawn egg: creative only, spawns the mob on the clicked face
       if(GAME_MODE!=='creative') return;
-      this.spawnMobOfKind(ITEMS[heldId].spawnEgg, px+0.5, py, pz+0.5);
+      try{ this.spawnMobOfKind(ITEMS[heldId].spawnEgg, px+0.5, py, pz+0.5); }
+      catch(err){ console.error('Spawn egg failed:', err); this.addChatLine('System', 'Spawn egg failed: ' + (err && err.message || err), false); }
       this._swingOnce();
       return;
     }
@@ -6631,7 +6632,7 @@ class Game{
   }
 
   spawnMobOfKind(kind,x,y,z){
-    if(kind==='zombie') this.spawnHostile(x,y,z); else this.spawnAnimal(x,y,z,kind);
+    if(kind==='zombie') this.spawnHostile(x,y,z,true); else this.spawnAnimal(x,y,z,kind);
   }
   spawnAnimal(x,y,z,forceKind){
     const kind = forceKind || (Math.random()<0.5 ? 'cow' : 'pig');
@@ -6646,12 +6647,12 @@ class Game{
       bobT: Math.random()*10,
     });
   }
-  spawnHostile(x,y,z){
+  spawnHostile(x,y,z,persist){
     const { group, parts } = this.buildMobModel('hostile');
     group.position.set(x,y,z);
     this.scene.add(group);
     this.hostiles.push({
-      kind:'zombie', group, parts,
+      kind:'zombie', group, parts, persist: !!persist, // egg-spawned zombies don't burn off in daylight
       pos: new THREE.Vector3(x,y,z),
       yaw: Math.random()*Math.PI*2,
       wanderT: 0, attackCD: 0, health: 8, maxHealth: 8, hitFlashT: 0,
@@ -6712,7 +6713,7 @@ class Game{
       const m = this.hostiles[i];
       const distToPlayer = m.pos.distanceTo(this.pos);
       // daylight burns them off (classic rule) as well as simple despawn distance
-      if(distToPlayer > despawnDist || (!this.isNight && this.lightLevelAt(Math.floor(m.pos.x),Math.floor(m.pos.y),Math.floor(m.pos.z))>8)){
+      if(distToPlayer > despawnDist || (!m.persist && !this.isNight && this.lightLevelAt(Math.floor(m.pos.x),Math.floor(m.pos.y),Math.floor(m.pos.z))>8)){
         this.scene.remove(m.group); this.hostiles.splice(i,1); continue;
       }
       m.bobT += delta*7;
