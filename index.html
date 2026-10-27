@@ -1783,12 +1783,19 @@ const SHAPE = (function(){
     ids.bed['head'+f] = hide(bedHeadBase, { bedPart:'head', facing:f, boxes:bedBoxes, dropId:150 });
   }
   Object.assign(bedBase, { bedPart:'foot', facing:0, boxes:bedBoxes, dropId:150 });
+  // mirrored open doors (hinge on the other edge) for double doors; allocated last so existing ids never shift
+  for(let f=0; f<4; f++){
+    const mb = [ rot([1-TH,0,0,1,1,1], f) ];
+    const mm = { facing:f, open:true, mirror:true, boxes:mb, solid:true, transparent:true, dropId:21 };
+    ids.door['lower'+f+'2'] = hide(lowerBase, Object.assign({ doorHalf:'lower', texFrom:21 }, mm));
+    ids.door['upper'+f+'2'] = hide(upperBase, Object.assign({ doorHalf:'upper', texFrom:doorTopId }, mm));
+  }
   const FACE_OFF = [[0,-1],[1,0],[0,1],[-1,0]]; // [dx,dz] for facing 0..3 (matches facingOf)
   return {
     doorTopId,
     bed:(part,f)=> ids.bed[part+f],
     bedOff:(f)=> FACE_OFF[f],
-    door:(half,f,open)=> ids.door[half+f+(open?1:0)],
+    door:(half,f,open)=> ids.door[half+f+(open==='m'?2:open?1:0)],
     stairs:(baseId,f)=> ids.stairs[baseId+'_'+f],
     facingOf:(dir)=> Math.abs(dir.x)>Math.abs(dir.z) ? (dir.x>0?1:3) : (dir.z>0?2:0),
   };
@@ -6434,13 +6441,27 @@ class Game{
     }
   }
   _toggleDoor(x,y,z){
-    const b = BLOCKS[this.world.getBlock(x,y,z)];
-    const oy = b.doorHalf==='lower' ? y+1 : y-1;
-    const o = BLOCKS[this.world.getBlock(x,oy,z)];
-    const open = !b.open;
+    let b = BLOCKS[this.world.getBlock(x,y,z)];
+    if(!b || !b.doorHalf) return;
+    if(b.doorHalf==='upper'){ y--; b = BLOCKS[this.world.getBlock(x,y,z)]; }
+    if(!b || b.doorHalf!=='lower') return;
+    const f = b.facing, open = !b.open;
     playSfxUrl(open ? DOOR_OPEN_SOUND_URL : DOOR_CLOSE_SOUND_URL);
-    this._setShaped(x,y,z, SHAPE.door(b.doorHalf,b.facing,open));
-    if(o && o.doorHalf && o.doorHalf!==b.doorHalf) this._setShaped(x,oy,z, SHAPE.door(o.doorHalf,o.facing,open));
+    // double doors: a same-facing door beside this one in the same state moves with it; the pair swings apart
+    const RIGHT = [[1,0],[0,1],[-1,0],[0,-1]][f]; // local +x of the door, in world dx,dz
+    const isPartner = (px,pz)=>{ const pb = BLOCKS[this.world.getBlock(px,y,pz)];
+      return !!(pb && pb.doorHalf==='lower' && pb.facing===f && !!pb.open===!!b.open); };
+    const right = isPartner(x+RIGHT[0], z+RIGHT[1]);
+    const left = !right && isPartner(x-RIGHT[0], z-RIGHT[1]);
+    const set = (px,pz,state)=>{
+      const o = BLOCKS[this.world.getBlock(px,y+1,pz)];
+      this._setShaped(px,y,pz, SHAPE.door('lower',f,state));
+      if(o && o.doorHalf==='upper') this._setShaped(px,y+1,pz, SHAPE.door('upper',f,state));
+    };
+    if(!open){ set(x,z,false); if(right) set(x+RIGHT[0],z+RIGHT[1],false); else if(left) set(x-RIGHT[0],z-RIGHT[1],false); }
+    else if(right){ set(x,z,true); set(x+RIGHT[0],z+RIGHT[1],'m'); }
+    else if(left){ set(x-RIGHT[0],z-RIGHT[1],true); set(x,z,'m'); }
+    else set(x,z,true);
   }
 
   placeBlock(){
