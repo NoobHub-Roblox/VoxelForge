@@ -112,8 +112,13 @@
   .hotslot .cnt{position:absolute; bottom:1px; right:3px; font-size:11px; color:#fff; text-shadow:1px 1px 0 #000;}
 
   #statBars{position:absolute; bottom:74px; left:50%; transform:translateX(-50%);
-    display:flex; flex-direction:column; gap:3px; align-items:center;}
+    display:flex; flex-direction:row; flex-wrap:wrap; gap:3px 14px; align-items:center; justify-content:center;
+    max-width:calc(100vw - 8px);}
+  #healthRow{order:1;}
+  #hungerRow{order:2; flex-direction:row-reverse;} /* drumsticks empty from the left, like hearts empty from the right */
   .barRow{display:flex; gap:2px;}
+  .hunger.low{animation:hungerShake .5s infinite;}
+  @keyframes hungerShake{0%,100%{transform:translate(0,0);}25%{transform:translate(-1px,1px);}75%{transform:translate(1px,-1px);}}
   .heart, .hunger{width:16px; height:16px; image-rendering:pixelated;}
 
   #debugPanel{
@@ -268,6 +273,18 @@
   #invSearch:focus{border-color:var(--vf-orange);}
   .invEmpty{grid-column:1/-1; text-align:center; padding:18px 6px; font-size:12px; color:#6b7590;}
   .invSlot .cnt{position:absolute; bottom:0; right:2px; font-size:10px; text-shadow:1px 1px #000;}
+  /* Hotbar editor inside the inventory window */
+  .hbEditor{margin:2px 0 10px;}
+  .hbEditor h3{margin:0 0 6px; font-size:11px; letter-spacing:2px; color:var(--vf-orange);}
+  .hbRow{display:grid; grid-template-columns:repeat(9,1fr); gap:4px;}
+  .hbSlot{aspect-ratio:1; background:#0e111acc; border:2px solid #000; border-radius:4px; position:relative;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; touch-action:none; min-width:0;}
+  .hbSlot img{width:72%; height:72%; image-rendering:pixelated; pointer-events:none;}
+  .hbSlot .hbNum{position:absolute; top:0; left:2px; font-size:9px; color:#8892ab; pointer-events:none;}
+  .hbSlot .cnt{position:absolute; bottom:0; right:2px; font-size:10px; font-weight:700; text-shadow:1px 1px #000; pointer-events:none;}
+  .hbSlot.active{border-color:var(--vf-orange);}
+  .hbSlot.picked{background:#e0742a55; box-shadow:0 0 6px #e0742a;}
+  .hbSlot:hover{border-color:#6b7590;}
   .closeX{
     position:absolute; top:10px; right:14px; cursor:pointer; font-size:20px; color:#aaa;
     pointer-events:auto;
@@ -873,6 +890,7 @@
     <h2>Inventory</h2>
     <input id="invSearch" type="search" placeholder="Search blocks &amp; items…" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search blocks and items">
     <div class="invGrid" id="invGrid"></div>
+    <div class="hbEditor" id="hbEditor"><h3>HOTBAR</h3><div class="hbRow" id="hbRow"></div></div>
     <div style="font-size:11px; color:#8892ab;" id="invHint">Click a block to select it into your hotbar.</div>
     <div class="dropRow">
       <button class="vf-btn" id="dropHeldBtn" disabled><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11M7 10l5 5 5-5M5 20h14"/></svg>Drop held stack</button>
@@ -1715,8 +1733,8 @@ const ITEMS = {
   116: { name:'coal', isItem:true, icon:'lump_coal' },
   117: { name:'raw_iron', isItem:true, icon:'raw_iron' },
   118: { name:'raw_gold', isItem:true, icon:'raw_gold' },
-  119: { name:'raw_meat', isItem:true, icon:'raw_meat' },
-  120: { name:'cooked_meat', isItem:true, icon:'cooked_meat' },
+  119: { name:'raw_meat', isItem:true, icon:'raw_meat', food:3, sat:1.8 },
+  120: { name:'cooked_meat', isItem:true, icon:'cooked_meat', food:8, sat:12.8 },
   121: { name:'zombie_spawn_egg', isItem:true, icon:'egg_zombie', spawnEgg:'zombie' },
   122: { name:'cow_spawn_egg', isItem:true, icon:'egg_cow', spawnEgg:'cow' },
   123: { name:'pig_spawn_egg', isItem:true, icon:'egg_pig', spawnEgg:'pig' },
@@ -2310,7 +2328,17 @@ function vfMeshChunk(job, T){
         for(let fi=0; fi<6; fi++){
           const fd = faces[fi];
           const nb = blockAt(x+fd.nx, y+fd.ny, z+fd.nz);
-          if(!shouldDraw(id, nb)) continue;
+          let hLow = 0; // >0: only the part of this side face above a lower liquid neighbour is drawn
+          if(!shouldDraw(id, nb)){
+            // A taller liquid next to a lower one of the same kind (source beside a stream, a
+            // waterfall edge...) would otherwise leave a see-through gap: draw the exposed step.
+            if(liq[id] && liq[nb] && fam[nb] === fam[id] && fd.ny === 0 && h > 0){
+              const nAbove = blockAt(x+fd.nx, y+1, z+fd.nz);
+              const nFed = !!(liq[nAbove] && fam[nAbove] === fam[nb]);
+              const hn = (nFed || isSrc[nb]) ? 1 : 0.2 + (0.875-0.2) * (flow[nb]/7);
+              if(h > hn + 0.001) hLow = hn; else continue;
+            } else continue;
+          }
 
           const o = id*4 + ((fnx[id]|fnz[id]) && fnx[id]===fd.nx && fnz[id]===fd.nz ? 3 : fd.kind);
           const li = fl[o];
@@ -2320,7 +2348,7 @@ function vfMeshChunk(job, T){
           const alpha = fa[o];
           const cn = fd.corners;
           for(let c=0;c<4;c++){
-            const cy = (h < 1 && cn[c*3+1] === 1) ? h : cn[c*3+1];
+            const cy = cn[c*3+1] === 1 ? h : hLow;
             const vx = x + cn[c*3], vy = y + cy, vz = z + cn[c*3+2];
             P.push(vx, vy, vz);
             N.push(fd.nx, fd.ny, fd.nz);
@@ -2631,6 +2659,7 @@ function playBlockSound(blockName){
 const DEFAULT_BREAK_SOUNDS = {
   grass: 'assets/Sounds/Grass_Break.mp3',
   wood:  'assets/Sounds/Wood_Break.mp3',   // oak log (block "wood")
+  glass: 'assets/Sounds/Glass_Break.mp3',
 };
 const PICKUP_SOUND_URL = 'assets/Sounds/Pickup.mp3';
 const DOOR_OPEN_SOUND_URL  = 'assets/Sounds/WoodDoor_Open.mp3';
@@ -2735,7 +2764,20 @@ const CY_MAX = Math.floor(MAX_Y / CHUNK_SIZE);   // 16: highest chunk layer
 const CY_BASE_HI = 7;         // terrain tops out below y=128, so chunks above this are only streamed when the player is up high
 const CHUNKS_Y = CY_BASE_HI - CY_MIN + 1; // chunk layers always streamed
 const SEA_LEVEL = 30;
-const CAVE_T = 0.345; // fbm2 only reaches ~0.5, so 0.63 was unreachable. Lower = more caves.
+// ---- Cave generation tuning (see World._caveNode / _caveCarved) ----
+// Caves are carved from real 3D noise: "spaghetti" tunnels where two noise
+// fields are both near their midline, plus big "cheese" caverns deep down.
+// Noise fields are normalised to ~N(0,1), so these radii are in sigma units.
+const CAVE_TUNNEL_R = 0.32;   // tunnel radius in noise space (~3-5 blocks wide). Bigger = fatter/more tunnels.
+const CAVERN_T = 2.3;         // cavern field must exceed this (sigma). Lower = more/larger caverns.
+const CAVE_MIN_DEPTH = 8;     // tunnels stay this far under the surface unless an entrance is nearby
+const CAVE_ENTRANCE_T = 0.67; // 2D mask threshold (0..1) for patches where tunnels may break the surface
+const CAVE_STEP = 4;          // noise is sampled every 4 blocks and trilinearly blended in between
+
+// ---- Liquid flow tuning (see World.stepLiquids) ----
+const FLOW_SEEK_RANGE = 4;    // flowing liquid heads for an edge this many blocks away, if there is one
+const FLOW_BUDGET = 250;      // liquid cells processed per tick; the rest wait for the next tick
+const FLOW_TICK = 0.2;        // seconds between liquid ticks (one block of spread per tick)
 let RENDER_DISTANCE = 4; // in chunks (radius) — mutable, adjustable in Settings
 
 let WORLD_SEED = 1337;
@@ -2808,6 +2850,33 @@ function hash3(x,y,z,seed){
   h = (h ^ (h >> 13)) * 1274126177;
   h = h ^ (h >> 16);
   return ((h >>> 0)/4294967295);
+}
+
+// ---- uniform 3D value noise (used by cave generation) ----
+// hash3/hash2 above overflow float precision and only cover about half of [0,1),
+// which is fine for thresholds tuned against them but useless for noise that has to be
+// centred and symmetric. This one uses 32-bit integer mixing and is uniform on [0,1).
+function ihash3(x,y,z,seed){
+  let h = Math.imul(x|0, 0x27d4eb2d) ^ Math.imul(y|0, 0x165667b1) ^ Math.imul(z|0, 0x85ebca6b) ^ Math.imul(seed|0, 0x9e3779b1);
+  h = Math.imul(h ^ (h>>>15), 0x2c1b3c6d);
+  h = Math.imul(h ^ (h>>>12), 0x297a2d39);
+  h ^= h>>>15;
+  return (h>>>0)/4294967296;
+}
+function vnoise3(x,y,z,seed){
+  const xi=Math.floor(x), yi=Math.floor(y), zi=Math.floor(z);
+  const xf=x-xi, yf=y-yi, zf=z-zi;
+  const u=xf*xf*xf*(xf*(xf*6-15)+10), v=yf*yf*yf*(yf*(yf*6-15)+10), w=zf*zf*zf*(zf*(zf*6-15)+10);
+  const c000=ihash3(xi,yi,zi,seed),     c100=ihash3(xi+1,yi,zi,seed),     c010=ihash3(xi,yi+1,zi,seed),     c110=ihash3(xi+1,yi+1,zi,seed);
+  const c001=ihash3(xi,yi,zi+1,seed),   c101=ihash3(xi+1,yi,zi+1,seed),   c011=ihash3(xi,yi+1,zi+1,seed),   c111=ihash3(xi+1,yi+1,zi+1,seed);
+  const x00=c000+(c100-c000)*u, x10=c010+(c110-c010)*u, x01=c001+(c101-c001)*u, x11=c011+(c111-c011)*u;
+  const y0=x00+(x10-x00)*v, y1=x01+(x11-x01)*v;
+  return y0+(y1-y0)*w;
+}
+function fbm3(x,y,z,seed,octaves){
+  let amp=1, freq=1, sum=0, norm=0;
+  for(let i=0;i<octaves;i++){ sum += vnoise3(x*freq,y*freq,z*freq,seed+i*131)*amp; norm += amp; amp*=0.5; freq*=2.1; }
+  return sum/norm;
 }
 
 function chunkKey(cx,cy,cz){ return cx+','+cy+','+cz; }
@@ -2915,20 +2984,30 @@ class World{
   }
 
   /* ---------------- Liquid simulation ----------------
-     Classic falloff-based flow, run in small time-sliced batches (see
-     stepLiquids) rather than a full grid scan every tick:
-       - id 10 is an infinite STILL SOURCE (flowLevel 7, never decays away).
-       - ids 45..51 are FLOWING water at levels 6..0. Each flowing tile's
-         level is one less than the strongest water-family neighbor that
-         still has a valid, connected path back to a source (checked lazily:
-         we don't trace full paths, we just let levels decay outward from
-         known sources each tick and let unsupported flowing tiles evaporate
-         once nothing stronger still feeds them).
-       - Every tick we only process cells present in `liquidQueue`, and each
-         processed cell may enqueue its neighbors for the *next* tick, so a
-         big lake settles over a few dozen frames instead of one big freeze.
+     Water and lava flow, rebuilt as a small cellular automaton.
+       - ids 10 / 52 are SOURCES (flowLevel 7) and never decay.
+       - ids 45..50 / 53..58 are FLOWING liquid at levels 6..1. A flowing cell is only ever as
+         strong as its best sideways neighbour minus one, so a stream thins out and stops
+         6 blocks from its source.
+       - A flowing cell with the same liquid directly above it is a FALLING column: it is always
+         level 6 and counts as strength 7 when it spreads, so a waterfall that lands on the floor
+         fans out like a fresh source, and a waterfall never turns into a permanent pillar of sources.
+       - Liquid falls first. It only spreads sideways if it is a source, or if it is resting on
+         something that is not air/liquid.
+       - When spreading sideways, flowing liquid looks FLOW_SEEK_RANGE blocks ahead for an edge to
+         pour over and heads for the nearest one; with no edge in range it spreads every way.
+       - Two water sources side by side with a solid block (or a source) underneath create a third:
+         the classic infinite-water pool.
+       - Every touched cell is first PULLED (its level is re-derived from its neighbours) and then
+         PUSHED (it spreads into air / topped up neighbours). So when a source is removed the stream
+         drains away from the open end back to where the source was, a few cells per tick.
+       - Only cells in `liquidQueue` are processed, FLOW_BUDGET per tick. Chunks that are not
+         generated yet and everything outside the world behave like solid wall, so liquid can never
+         leak into the void or into terrain that has not been built.
+       - Lava is the same machine, just slower (see the 25% gate) and it turns to basalt on
+         contact with water.
   */
-  // Family -> [sourceId, flowingIdByLevel6..1] (level0/air handled inline)
+  // Family -> [sourceId, flowingIdByLevel6..1]
   static LIQUID_FAMILIES = {
     water: { source:10, flow:[45,46,47,48,49,50] }, // 45=lvl6 .. 50=lvl1
     lava:  { source:52, flow:[53,54,55,56,57,58] },
@@ -2936,23 +3015,86 @@ class World{
   waterIdForLevel(level, family='water'){
     const fam = World.LIQUID_FAMILIES[family];
     if(level>=7) return fam.source;
-    if(level<=0) return 0;  // too weak to keep flowing — becomes air
+    if(level<=0) return 0;  // too weak to exist: becomes air
     return fam.flow[6-level];
   }
   levelOf(id){
     const def = BLOCKS[id];
     return (def && def.liquid) ? def.flowLevel : -1;
   }
-  // Runs up to `budget` queued cell-checks. Returns true if any block
-  // actually changed (so the caller knows whether meshes need rebuilding —
-  // though setBlock already handles that dirtying itself).
-  stepLiquids(budget=400){
+  // Block id as the flow rules see it: ungenerated chunks and cells outside the world are solid wall.
+  _fb(x,y,z){
+    if(y<MIN_Y || y>MAX_Y) return 17;
+    const c = this.getChunk(Math.floor(x/CHUNK_SIZE), Math.floor(y/CHUNK_SIZE), Math.floor(z/CHUNK_SIZE));
+    if(!c || !c.generated) return 17;
+    return c.blocks[(((y%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE*CHUNK_SIZE + ((z%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE)*CHUNK_SIZE + ((x%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE];
+  }
+  _isLiq(id, fam){
+    const d = BLOCKS[id];
+    return !!(d && d.liquid && (d.liquidFamily||'water')===fam);
+  }
+  // Can liquid of this family pour into / through the cell below? (air or the same liquid)
+  _isDrop(x,y,z,fam){
+    const id = this._fb(x,y,z);
+    return id===0 || this._isLiq(id, fam);
+  }
+  // How hard a liquid cell pushes sideways: sources 7, falling-and-landed columns 7,
+  // otherwise its own level. Cells that are still in mid-air only fall, so they push nothing.
+  _spreadStrength(x,y,z,fam){
+    const id = this._fb(x,y,z), d = BLOCKS[id];
+    if(!d || !d.liquid || (d.liquidFamily||'water')!==fam) return 0;
+    if(d.isSource) return 7;
+    if(this._isDrop(x,y-1,z,fam)) return 0;
+    return this._isLiq(this._fb(x,y+1,z), fam) ? 7 : d.flowLevel;
+  }
+  // Which of the 4 sideways directions should this cell spread into? Heads for the nearest drop
+  // (an air cell to pour into) within FLOW_SEEK_RANGE, otherwise every open direction.
+  _flowDirs(x,y,z,fam){
+    const D = [[1,0],[-1,0],[0,1],[0,-1]], R = FLOW_SEEK_RANGE, W = R*2+3;
+    const dist = [99,99,99,99], open = [false,false,false,false];
+    let best = 99;
+    for(let d=0; d<4; d++){
+      const sx = x+D[d][0], sz = z+D[d][1], sid = this._fb(sx,y,sz);
+      if(!(sid===0 || this._isLiq(sid,fam))) continue; // wall: not a way out
+      open[d] = true;
+      const seen = new Uint8Array(W*W);
+      const mark = (px,pz)=>{ seen[(px-x+R+1)*W + (pz-z+R+1)] = 1; };
+      const was  = (px,pz)=> seen[(px-x+R+1)*W + (pz-z+R+1)] === 1;
+      mark(x,z); mark(sx,sz);
+      let frontier = [[sx,sz]], steps = 0, found = 99;
+      while(frontier.length && found===99){
+        const next = [];
+        for(const [px,pz] of frontier){
+          if(this._fb(px,y-1,pz)===0){ found = steps; break; }
+          if(steps >= R) continue;
+          for(const [dx,dz] of D){
+            const nx = px+dx, nz = pz+dz;
+            if(was(nx,nz)) continue;
+            mark(nx,nz);
+            const nid = this._fb(nx,y,nz);
+            if(nid===0 || this._isLiq(nid,fam)) next.push([nx,nz]);
+          }
+        }
+        frontier = next; steps++;
+      }
+      dist[d] = found;
+      if(found < best) best = found;
+    }
+    const out = [];
+    for(let d=0; d<4; d++){
+      if(!open[d]) continue;
+      if(best===99 || dist[d]===best) out.push(D[d]);
+    }
+    return out;
+  }
+
+  // Queued cells run in small batches (the game calls this every ~0.2s), up to `budget` per call;
+  // whatever does not fit waits for the next call.
+  stepLiquids(budget=FLOW_BUDGET){
     if(this.liquidQueue.size===0) return;
     const cells = Array.from(this.liquidQueue);
     this.liquidQueue.clear();
     const n = Math.min(budget, cells.length);
-    // if there's more queued than our budget allows, keep the overflow for
-    // next tick instead of dropping it
     for(let i=n;i<cells.length;i++) this.liquidQueue.add(cells[i]);
     for(let i=0;i<n;i++){
       const [x,y,z] = cells[i].split(',').map(Number);
@@ -2960,89 +3102,79 @@ class World{
     }
   }
   _checkLiquidCell(x,y,z){
-    const id = this.getBlock(x,y,z);
-    const def = BLOCKS[id];
-    if(!def || !def.liquid) return;
-    const family = def.liquidFamily || 'water';
-    // Lava flows/settles more sluggishly than water — only actually act on
-    // roughly 1 in 4 checks (still gets re-queued every tick, so it just
-    // takes longer per step rather than skipping ticks system-wide).
-    if(family==='lava' && Math.random() < 0.75){
-      this.queueLiquid(x,y,z);
-      return;
+    const id = this._fb(x,y,z), def = BLOCKS[id];
+    if(!def || !def.liquid) return;               // dried up or got built over since it was queued
+    const fam = def.liquidFamily || 'water';
+    const isSrc = !!def.isSource;
+    // Lava is sluggish: act on about 1 check in 4 (it re-queues itself, so it only slows down).
+    if(fam==='lava' && Math.random() < 0.75){ this.queueLiquid(x,y,z); return; }
+
+    // --- lava touching water cools to basalt ---
+    if(fam==='lava'){
+      if(this._isLiq(this._fb(x+1,y,z),'water') || this._isLiq(this._fb(x-1,y,z),'water') ||
+         this._isLiq(this._fb(x,y+1,z),'water') || this._isLiq(this._fb(x,y-1,z),'water') ||
+         this._isLiq(this._fb(x,y,z+1),'water') || this._isLiq(this._fb(x,y,z-1),'water')){
+        this.setBlock(x,y,z,59);
+        return;
+      }
     }
-    // --- Lava meeting water (either direction, any neighbor) turns to
-    // obsidian/basalt instead of continuing to flow, like classic voxel lava. ---
-    if(family==='lava' || family==='water'){
-      const neighborsXYZ = [[x+1,y,z],[x-1,y,z],[x,y+1,z],[x,y-1,z],[x,y,z+1],[x,y,z-1]];
-      for(const [nx,ny,nz] of neighborsXYZ){
-        const nb = this.getBlock(nx,ny,nz);
-        const nbDef = BLOCKS[nb];
-        if(nbDef && nbDef.liquid && (nbDef.liquidFamily||'water') !== family){
-          // lava cell touching water (or vice versa) -> both solidify
-          this.setBlock(x,y,z, family==='lava' ? 59 : 0); // lava->basalt, water just gets consumed by the steam/solidify event
+
+    const below = this._fb(x,y-1,z);
+    const fed = this._isLiq(this._fb(x,y+1,z), fam);   // same liquid directly above: falling column
+    let level = def.flowLevel;
+
+    // --- PULL: a flowing cell re-derives its level from what actually feeds it ---
+    if(!isSrc){
+      if(fam==='water'){
+        // two sources beside it + something solid (or a source) under it -> becomes a source
+        let srcN = 0;
+        if(this._fb(x+1,y,z)===10) srcN++;
+        if(this._fb(x-1,y,z)===10) srcN++;
+        if(this._fb(x,y,z+1)===10) srcN++;
+        if(this._fb(x,y,z-1)===10) srcN++;
+        const bd = BLOCKS[below];
+        if(srcN>=2 && bd && ((bd.solid && !bd.liquid) || below===10)){
+          this.setBlock(x,y,z,10);
           return;
         }
       }
-    }
-    // --- Cell currently holds flowing liquid: does it still have support? ---
-    if(!def.isSource){
-      // Flowing liquid with air/weaker-liquid below always wants to be a
-      // "waterfall" (falls straight down at full strength), independent of
-      // its horizontal level — handled in the spread pass below. Here we
-      // just verify it still has a strong-enough horizontal or vertical
-      // neighbor to justify its own current level; if not, it evaporates.
-      let bestNeighborLevel = -1;
-      const above = this.getBlock(x,y+1,z);
-      const aboveDef = BLOCKS[above];
-      if(aboveDef && aboveDef.liquid && (aboveDef.liquidFamily||'water')===family) bestNeighborLevel = 7; // fed from above -> always full
-      if(bestNeighborLevel<7){
-        const sides = [[x+1,y,z],[x-1,y,z],[x,y,z+1],[x,y,z-1]];
-        for(const [nx,ny,nz] of sides){
-          const nb = this.getBlock(nx,ny,nz);
-          const nbDef = BLOCKS[nb];
-          if(nbDef && nbDef.liquid && (nbDef.liquidFamily||'water')===family) bestNeighborLevel = Math.max(bestNeighborLevel, nbDef.flowLevel);
-        }
+      let want;
+      if(fed) want = 6;
+      else {
+        const best = Math.max(
+          this._spreadStrength(x+1,y,z,fam), this._spreadStrength(x-1,y,z,fam),
+          this._spreadStrength(x,y,z+1,fam), this._spreadStrength(x,y,z-1,fam));
+        want = best-1;
       }
-      const supportedLevel = bestNeighborLevel - 1;
-      if(supportedLevel < 0 || supportedLevel < def.flowLevel){
-        if(supportedLevel<0){
-          // nothing feeds this tile anymore — dry up
-          this.setBlock(x,y,z,0);
-          return;
-        } else if(supportedLevel !== def.flowLevel){
-          // settle to the level its strongest neighbor actually supports
-          this.setBlock(x,y,z,this.waterIdForLevel(supportedLevel, family));
-        }
+      if(want < 1){ this.setBlock(x,y,z,0); return; }   // nothing feeds it any more: dry up
+      if(want !== level){
+        level = want;
+        this.setBlock(x,y,z,this.waterIdForLevel(want,fam));
       }
     }
-    // --- Any liquid cell (source or flowing): try to spread out ---
-    {
-      const myLevel = def.flowLevel;
-      // spread straight down first — a waterfall always falls at full
-      // strength regardless of the source tile's own level
-      const belowId = this.getBlock(x,y-1,z);
-      if(belowId===0 && y-1>=0){
-        this.setBlock(x,y-1,z, this.waterIdForLevel(7, family));
-        this.queueLiquid(x,y-1,z);
-      } else if(myLevel>1){
-        // spread horizontally only if this tile has enough level left
-        const sides = [[x+1,y,z],[x-1,y,z],[x,y,z+1],[x,y,z-1]];
-        for(const [nx,ny,nz] of sides){
-          const nb = this.getBlock(nx,ny,nz);
-          if(nb===0){
-            const newLevel = myLevel-1;
-            this.setBlock(nx,ny,nz, this.waterIdForLevel(newLevel, family));
-            this.queueLiquid(nx,ny,nz);
-          } else {
-            const nbDef = BLOCKS[nb];
-            if(nbDef && nbDef.liquid && (nbDef.liquidFamily||'water')===family && nbDef.flowLevel < myLevel-1){
-              // a weaker flowing tile sits next to us — top it up and let
-              // it re-check/re-spread itself next tick
-              this.setBlock(nx,ny,nz, this.waterIdForLevel(myLevel-1, family));
-              this.queueLiquid(nx,ny,nz);
-            }
-          }
+
+    // --- PUSH: fall first ---
+    if(below===0){
+      this.setBlock(x,y-1,z,this.waterIdForLevel(6,fam));
+    } else if(this._isLiq(below,fam)){
+      const bd = BLOCKS[below];
+      if(!bd.isSource && bd.flowLevel!==6) this.queueLiquid(x,y-1,z); // it will pull itself up to a falling column
+    }
+
+    // --- PUSH: then sideways, only from a source or from something resting on a solid floor ---
+    const strength = (isSrc || fed) ? 7 : level;
+    const resting = !this._isDrop(x,y-1,z,fam);
+    if((isSrc || resting) && strength >= 2){
+      const nl = strength-1, nid = this.waterIdForLevel(nl,fam);
+      const dirs = this._flowDirs(x,y,z,fam);
+      for(const [dx,dz] of dirs){
+        const nx = x+dx, nz = z+dz, nb = this._fb(nx,y,nz);
+        if(nb===0){
+          this.setBlock(nx,y,nz,nid);
+        } else if(this._isLiq(nb,fam)){
+          const bd = BLOCKS[nb];
+          // top up a weaker flowing neighbour (never a source, never a falling column)
+          if(!bd.isSource && bd.flowLevel < nl && !this._isLiq(this._fb(nx,y+1,nz),fam)) this.setBlock(nx,y,nz,nid);
         }
       }
     }
@@ -3339,10 +3471,89 @@ class World{
     return any ? map : null;
   }
 
+  /* ---------------- Caves ----------------
+     Real 3D noise, evaluated on a coarse world-aligned lattice (every CAVE_STEP
+     blocks) and blended trilinearly, so neighbouring chunks always agree and a chunk
+     only needs 5x5x5 noise samples instead of one per block.
+       field 0 + field 1 : "spaghetti" tunnels. A block is tunnel where BOTH fields are
+                           close to their midline (the intersection of two noise sheets
+                           is a winding tube).
+       field 2           : "cheese" caverns. Big rooms where the field is very high.
+     Tunnels stay CAVE_MIN_DEPTH under the surface (no random pits), except in
+     "entrance" patches where they are allowed to break out into daylight. */
+  _caveNode(ix,iy,iz,out,o){
+    const S = CAVE_STEP, x = ix*S, y = iy*S, z = iz*S, s = this.seed;
+    out[o]   = (fbm3(x*0.035,      y*0.05,      z*0.035,      s+701, 2)-0.5)*6.6667;
+    out[o+1] = (fbm3(x*0.035+57.3, y*0.05+11.1, z*0.035+91.7, s+702, 2)-0.5)*6.6667;
+    out[o+2] = (fbm3(x*0.011,      y*0.02,      z*0.011,      s+703, 2)-0.5)*6.6667;
+  }
+  _caveLattice(cx,cy,cz){
+    const k = CHUNK_SIZE/CAVE_STEP, n = k+1;
+    const L = new Float32Array(n*n*n*3);
+    let o = 0;
+    for(let j=0;j<n;j++) for(let m=0;m<n;m++) for(let i=0;i<n;i++){ this._caveNode(cx*k+i, cy*k+j, cz*k+m, L, o); o += 3; }
+    return L;
+  }
+  // Blend the chunk lattice at local block (lx,ly,lz) into out[0..2].
+  _caveBlend(L,lx,ly,lz,out){
+    const S = CAVE_STEP, n = CHUNK_SIZE/S + 1;
+    const i = Math.floor(lx/S), j = Math.floor(ly/S), m = Math.floor(lz/S);
+    const fx = (lx-i*S)/S, fy = (ly-j*S)/S, fz = (lz-m*S)/S;
+    let r0=0, r1=0, r2=0;
+    for(let dy=0;dy<2;dy++) for(let dz=0;dz<2;dz++) for(let dx=0;dx<2;dx++){
+      const w = (dx?fx:1-fx)*(dy?fy:1-fy)*(dz?fz:1-fz);
+      const o = (((j+dy)*n + (m+dz))*n + (i+dx))*3;
+      r0 += L[o]*w; r1 += L[o+1]*w; r2 += L[o+2]*w;
+    }
+    out[0]=r0; out[1]=r1; out[2]=r2;
+  }
+  // Same blend for an arbitrary world position (no chunk lattice needed).
+  _caveFieldAt(wx,wy,wz,out){
+    const S = CAVE_STEP;
+    const ix = Math.floor(wx/S), iy = Math.floor(wy/S), iz = Math.floor(wz/S);
+    const fx = (wx-ix*S)/S, fy = (wy-iy*S)/S, fz = (wz-iz*S)/S;
+    const tmp = this._caveTmp || (this._caveTmp = new Float32Array(3));
+    let r0=0, r1=0, r2=0;
+    for(let dy=0;dy<2;dy++) for(let dz=0;dz<2;dz++) for(let dx=0;dx<2;dx++){
+      const w = (dx?fx:1-fx)*(dy?fy:1-fy)*(dz?fz:1-fz);
+      this._caveNode(ix+dx, iy+dy, iz+dz, tmp, 0);
+      r0 += tmp[0]*w; r1 += tmp[1]*w; r2 += tmp[2]*w;
+    }
+    out[0]=r0; out[1]=r1; out[2]=r2;
+  }
+  // Is this column in a patch where tunnels may open onto the surface? Never near
+  // sea level, so caves cannot punch into oceans, beaches or rivers.
+  _caveEntranceAt(wx,wz,surfaceY){
+    if(WORLD_TYPE==='flat' || surfaceY <= SEA_LEVEL+2) return false;
+    return fbm3(wx*0.018, 0.5, wz*0.018, this.seed+704, 2) > CAVE_ENTRANCE_T;
+  }
+  // a,b,c = blended noise fields; depth = blocks below the surface (top block = 1).
+  _caveCarved(a,b,c,depth,entrance,wy){
+    if(wy <= MIN_Y+2) return false;
+    const minD = entrance ? -3 : CAVE_MIN_DEPTH;
+    if(depth > minD){
+      const r = CAVE_TUNNEL_R * Math.min(1, (depth-minD)/6); // taper in so tunnel mouths are not sheer cuts
+      if(a*a + b*b < r*r) return true;
+    }
+    if(depth >= 14 && c > CAVERN_T) return true;
+    return false;
+  }
+  // True when the generator removed the block at (wx,wy,wz) as part of a cave.
+  _isCaveAir(wx,wy,wz,surfaceY){
+    const depth = surfaceY - wy;
+    const entrance = this._caveEntranceAt(wx,wz,surfaceY);
+    if(depth < (entrance ? 1 : CAVE_MIN_DEPTH)) return false;
+    const f = this._caveOut || (this._caveOut = new Float32Array(3));
+    this._caveFieldAt(wx,wy,wz,f);
+    return this._caveCarved(f[0],f[1],f[2],depth,entrance,wy);
+  }
+
   generateChunk(chunk){
     if(chunk.generated) return;
     const {cx,cy,cz} = chunk;
     const veinMap = this._oreVeinMap(cx,cy,cz);
+    let caveL = null;                    // 5x5x5 cave noise lattice, built only if a column needs it
+    const cv = new Float32Array(3);
     for(let lx=0; lx<CHUNK_SIZE; lx++){
       for(let lz=0; lz<CHUNK_SIZE; lz++){
         const wx = cx*CHUNK_SIZE+lx, wz = cz*CHUNK_SIZE+lz;
@@ -3397,6 +3608,7 @@ class World{
         }
         const surfaceY = this.heightAt(wx,wz);
         const biome = this.biomeAt(wx,wz);
+        const caveEntrance = this._caveEntranceAt(wx,wz,surfaceY);
         for(let ly=0; ly<CHUNK_SIZE; ly++){
           const wy = cy*CHUNK_SIZE+ly;
           let id = 0;
@@ -3406,10 +3618,6 @@ class World{
             id = 17; // bedrock
           } else if(wy < surfaceY-4){
             id = 3; // stone
-            // cave carving
-            const cave = fbm2(wx*0.07, wy*0.07 + wz*0.03, this.seed+777, 3, 2.1, 0.5);
-            const isCave = cave > CAVE_T && wy < surfaceY-6 && wy>MIN_Y+2;
-            if(isCave){ id = 0; }
             // ore veins (see _oreVeinMap): clustered chains of ore instead of single scattered blocks
             if(id===3 && veinMap){
               const ov = veinMap[(ly*CHUNK_SIZE+lz)*CHUNK_SIZE+lx];
@@ -3451,6 +3659,15 @@ class World{
           } else {
             id = 0;
           }
+          // Cave carving: everything below the surface (stone, dirt, sand, grass) is fair game.
+          if(id!==0 && wy < surfaceY && wy > MIN_Y+2){
+            const depth = surfaceY - wy;
+            if(depth >= (caveEntrance ? 1 : CAVE_MIN_DEPTH)){
+              if(!caveL) caveL = this._caveLattice(cx,cy,cz);
+              this._caveBlend(caveL, lx,ly,lz, cv);
+              if(this._caveCarved(cv[0],cv[1],cv[2],depth,caveEntrance,wy)) id = 0;
+            }
+          }
           chunk.set(lx,ly,lz,id);
         }
       }
@@ -3469,6 +3686,8 @@ class World{
         const surfaceY = this.heightAt(wx,wz);
         const groundChunkY = Math.floor(surfaceY/CHUNK_SIZE);
         if(groundChunkY !== cy) continue; // only place from the chunk containing ground level
+        // a cave entrance may have removed the ground block: nothing should grow from thin air
+        if(this._isCaveAir(wx, surfaceY-1, wz, surfaceY)) continue;
         const biome = this.biomeAt(wx,wz);
         // NOTE: hash2's mixing step silently overflows 32-bit int math before
         // the final XOR-shift, so its output empirically only ever fills
@@ -3820,17 +4039,22 @@ function buildHeldObject(id){
   try{
     if(BLOCKS[id] && !ITEMS[id]){
       const def = BLOCKS[id];
-      const geo = new THREE.BoxGeometry(1, 1, 1);
-      const uv = geo.attributes.uv;
-      const faces = ['side','side','top','bottom','side','side']; // px, nx, py, ny, pz, nz
-      for(let f=0; f<6; f++){
-        const r = BlockAtlas.rect(faceMaterialKey(id, faces[f]));
-        for(let v=0; v<4; v++){
-          const i = f*4 + v;
-          uv.setXY(i, r[0] + uv.getX(i)*(r[2]-r[0]), r[1] + uv.getY(i)*(r[3]-r[1]));
+      let geo;
+      if(def.boxes){
+        geo = buildShapeGeometry(id); // stairs / door / bed / carpet: hold the actual shape
+      } else {
+        geo = new THREE.BoxGeometry(1, 1, 1);
+        const uv = geo.attributes.uv;
+        const faces = ['side','side','top','bottom','side','side']; // px, nx, py, ny, pz, nz
+        for(let f=0; f<6; f++){
+          const r = BlockAtlas.rect(faceMaterialKey(id, faces[f]));
+          for(let v=0; v<4; v++){
+            const i = f*4 + v;
+            uv.setXY(i, r[0] + uv.getX(i)*(r[2]-r[0]), r[1] + uv.getY(i)*(r[3]-r[1]));
+          }
         }
+        uv.needsUpdate = true;
       }
-      uv.needsUpdate = true;
       const mat = new THREE.MeshLambertMaterial({ map: BlockAtlas.texture, transparent: !!def.transparent, alphaTest: def.transparent ? 0.3 : 0 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.scale.setScalar(0.3);
@@ -4467,6 +4691,13 @@ class Game{
     this._prevFallVelY = 0;           // tracks vertical speed just before landing, for fall damage
     this.respawnPos = new THREE.Vector3(0, 60, 0); // set once real spawn column is found
 
+    // ---- hunger (survival only; see updateHunger) ----
+    this.maxFood = 20;               // 10 drumsticks, 2 points each
+    this.food = this.maxFood;
+    this.saturation = 5;             // hidden buffer that is used up before food starts dropping
+    this.exhaustion = 0;             // builds up as you move/mine/fight; 4.0 burns one saturation, then one food
+    this._regenT = 0; this._starveT = 0; this._eatCD = 0;
+
     // ---- void arena portal state ----
     this._archCooldown = 0;            // brief cooldown after any crossing so one walk-through doesn't immediately bounce back
     this._inArchBClearing = false;     // true while anywhere inside Arch B's clearing (drives atmosphere/drone)
@@ -4646,7 +4877,8 @@ class Game{
       const x = originX + Math.floor(Math.cos(angle)*rad);
       const z = originZ + Math.floor(Math.sin(angle)*rad);
 
-      if(this.world.isGrassSurface(x,z) && !this.world.isNearOrInTree(x,z)){
+      if(this.world.isGrassSurface(x,z) && !this.world.isNearOrInTree(x,z) &&
+         !this.world._caveEntranceAt(x,z,this.world.heightAt(x,z))){ // never spawn on a cave mouth
         const h = this.world.heightAt(x,z);
         this.pos.set(x+0.5, h+2, z+0.5);
         this.respawnPos.copy(this.pos);
@@ -5287,6 +5519,7 @@ class Game{
       this.renderInventory();
       this.renderCraftGrid2();
     } else {
+      this._hbPick = null; this._dragPick = false;
       const sb = document.getElementById('invSearch'); if(sb) sb.blur();
       this.returnCraftGrid2ToInventory();
     }
@@ -5317,6 +5550,7 @@ class Game{
     };
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerdown', move, true);
+    document.addEventListener('pointerdown', ()=>{ this._dragPick = false; }, true);
     document.addEventListener('pointerup', ()=>this._finishSpread());
     document.addEventListener('pointercancel', ()=>this._cancelSpread());
     // Drop: hover a stack + Q (Shift+Q = whole stack); click outside the window while holding a stack;
@@ -5500,6 +5734,11 @@ class Game{
     if(c.id){ this._depositCursor(right); return; }
     const have = this.inventoryCounts[id]||0;
     if(have<=0) return;
+    if(this._hbPick!==null && this._hbPick!==undefined && GAME_MODE==='survival' && !(e.shiftKey && g)){
+      this._hbAssign(this._hbPick, id);        // a hotbar slot was picked first: this item goes there
+      this._hbPick = null;
+      return;
+    }
     if(e.shiftKey && g){ this._quickMoveToGrid(g, id); return; }
     const take = right ? Math.ceil(have/2) : have;
     c.id = id; c.count = take;
@@ -6094,9 +6333,94 @@ class Game{
     }
   }
 
+  /* ---------------- Hotbar editor (inside the inventory window) ----------------
+     Choose which item sits in which hotbar slot:
+       - click (or drag) a stack, then click a slot            -> that item goes in that slot
+       - click a slot, then click an inventory item            -> same thing, the other way round
+       - click a slot, then another slot                       -> swap them
+       - right-click a slot                                    -> empty it (the items stay in your inventory)
+     Creative: click a slot to select it, then click a block in the palette to replace it. */
+  _hbAssign(idx, id){
+    const old = this.hotbar.indexOf(id);
+    if(old!==-1 && old!==idx) this.hotbar[old] = this.hotbar[idx]; // item was already on the bar: swap places
+    this.hotbar[idx] = id;
+    this.selectedBlock = this.hotbar[this.selectedSlot] || 0;
+    this.updateHotbarUI();
+  }
+  _hbSlotAction(idx, right){
+    const c = this.cursor;
+    if(GAME_MODE==='creative'){
+      if(right){ this.hotbar[idx] = 0; }
+      this.selectedSlot = idx; this.selectedBlock = this.hotbar[idx] || 0;
+      this.updateHotbarUI();
+      return;
+    }
+    if(c.id && c.count>0){                       // a stack is in hand: drop its item into this slot
+      const id = c.id;
+      this.inventoryCounts[id] = (this.inventoryCounts[id]||0) + c.count; // stack goes back to the inventory first...
+      c.id = 0; c.count = 0;
+      this._hbAssign(idx, id);                                              // ...so the slot is not cleared as 'empty'
+      this._hbPick = null;
+      this._refreshAll();
+      return;
+    }
+    if(right){                                   // clear the slot
+      this.hotbar[idx] = 0;
+      this._hbPick = null;
+      this.selectedBlock = this.hotbar[this.selectedSlot] || 0;
+      this._refreshAll();
+      return;
+    }
+    if(this._hbPick===null || this._hbPick===undefined){ this._hbPick = idx; }
+    else if(this._hbPick===idx){ this._hbPick = null; }
+    else {                                       // swap the two slots
+      const a = this._hbPick;
+      const t = this.hotbar[a]; this.hotbar[a] = this.hotbar[idx]; this.hotbar[idx] = t;
+      this._hbPick = null;
+      this.selectedBlock = this.hotbar[this.selectedSlot] || 0;
+    }
+    this._refreshAll();
+  }
+  renderHotbarEditor(){
+    const row = document.getElementById('hbRow');
+    if(!row) return;
+    row.innerHTML = '';
+    this.hotbar.forEach((id, idx)=>{
+      const slot = document.createElement('div');
+      slot.className = 'hbSlot' + (idx===this.selectedSlot ? ' active' : '') + (this._hbPick===idx ? ' picked' : '');
+      const num = document.createElement('span'); num.className = 'hbNum'; num.textContent = idx+1; slot.appendChild(num);
+      if(id){
+        const img = document.createElement('img'); img.src = iconDataUrl(id); slot.appendChild(img);
+        const def = ALL_DEFS[id];
+        if(def && def.durability!==undefined){
+          const dur = this.toolDurability[id]===undefined ? def.durability : this.toolDurability[id];
+          slot.appendChild(makeDurBar(dur, def.durability));
+        } else {
+          const cnt = document.createElement('div'); cnt.className = 'cnt';
+          const n = this.inventoryCounts[id]||0;
+          cnt.textContent = (GAME_MODE==='creative' || n>90) ? '∞' : n;
+          slot.appendChild(cnt);
+        }
+        if(def) attachTooltip(slot, def.name);
+      }
+      slot.oncontextmenu = (e)=>e.preventDefault();
+      slot.onpointerdown = (e)=>{ slot._down = true; slot._btn = e.button; e.preventDefault(); };
+      slot.onpointerleave = ()=>{ slot._down = false; };
+      slot.onpointerup = (e)=>{
+        const dragged = !!(this._dragPick && this.cursor.id);  // mouse drag from an inventory stack ended here
+        const clicked = slot._down; slot._down = false;
+        if(!dragged && !clicked) return;
+        this._dragPick = false;
+        this._hbSlotAction(idx, !dragged && slot._btn===2);
+      };
+      row.appendChild(slot);
+    });
+  }
+
   renderInventory(){
     const grid = document.getElementById('invGrid');
     grid.innerHTML='';
+    this.renderHotbarEditor();
     const invHint = document.getElementById('invHint');
     this._initCraftUI();
     // Survival: clicking empty space in the inventory drops the held stack back in.
@@ -6114,7 +6438,7 @@ class Game{
       // Survival has no "pick any block for free" creative palette — the
       // inventory instead shows only what the player has actually
       // collected/crafted, with real counts, matching real survival rules.
-      if(invHint) invHint.textContent = 'Click a stack to pick it up (right-click = half). Hover + 1-9 sets a hotbar slot, hover + Q drops one (Shift+Q the stack). Click outside this window, or use Drop below, to throw what you hold.';
+      if(invHint) invHint.textContent = 'Set your hotbar: click or drag a stack onto a hotbar slot (or click a slot, then an item). Click two slots to swap them, right-click a slot to empty it. Hover + 1-9 also works, hover + Q drops one (Shift+Q the stack). Right-click a stack = half.';
       const owned = Object.keys(this.inventoryCounts)
         .map(k=>+k)
         .filter(id=> id!==0 && (this.inventoryCounts[id]||0) > 0);
@@ -6145,7 +6469,9 @@ class Game{
         slot.onmouseenter = ()=>{ this._hoverInvId = id; };
         slot.onmouseleave = ()=>{ if(this._hoverInvId===id) this._hoverInvId = null; };
         this._bindPress(slot, (right, e)=>{
+          const had = !!this.cursor.id;
           this._invAction(id, right, e, this._grid(2));
+          if(!had && this.cursor.id && e.pointerType==='mouse') this._dragPick = true; // may be dragged onto a hotbar slot
           this._refreshAll();
         });
         grid.appendChild(slot);
@@ -6221,6 +6547,8 @@ class Game{
       });
     }
     this._updateHeldItem();
+    const invPanel = document.getElementById('inventoryPanel');
+    if(invPanel && invPanel.style.display==='flex') this.renderHotbarEditor();
     const bar = document.getElementById('hotbar');
     bar.innerHTML='';
     this.hotbar.forEach((id,idx)=>{
@@ -6447,6 +6775,8 @@ class Game{
     this.world.setBlock(m.x,m.y,m.z,0);
     this.markChunkRebuildsAround(m.x,m.y,m.z);
     this.syncBlockChange(m.x,m.y,m.z,0);
+    this.addExhaustion(0.005);
+    this._cactusCollapseFrom(m.x, m.y+1, m.z); // a cactus resting on what we just removed falls apart
     if(def && def.doorHalf){ // a door is two blocks: take the other half too (no second drop)
       const oy = def.doorHalf==='lower' ? m.y+1 : m.y-1;
       const ob = BLOCKS[this.world.getBlock(m.x,oy,m.z)];
@@ -6603,6 +6933,12 @@ class Game{
 
   placeBlock(){
     const hit = this.raycastBlock(6);
+    // Food in hand: right-click eats it (unless you are using a table / furnace / bed / door instead)
+    if(GAME_MODE==='survival' && ITEMS[this.selectedBlock] && ITEMS[this.selectedBlock].food){
+      const hb = hit && BLOCKS[hit.id];
+      const interactive = !!(hb && (hit.id===18 || hb.isFurnace || hb.bedPart || hb.doorHalf));
+      if(!interactive){ this.tryEat(); return; }
+    }
     if(!hit) return;
     if(hit.id===18){ this.toggleCraftingPanel(true); return; } // crafting_table: interact instead of place
     if(BLOCKS[hit.id].isFurnace){ this.toggleFurnacePanel(hit.x,hit.y,hit.z); return; } // furnace: interact instead of place
@@ -6634,6 +6970,10 @@ class Game{
     }
     if(!BLOCKS[heldId] || BLOCKS[heldId].name==='air') return; // tools/items can't be placed
     if(BLOCKS[heldId].creativeOnly && GAME_MODE!=='creative') return; // barrier etc: level-design tool, not a survival block
+    if(heldId===40 && !this.canPlaceCactusAt(px,py,pz)){ // cactus only grows on sand (or on more cactus that is itself on sand)
+      this.showCenterMsg('Cactus can only be placed on sand', 1400);
+      return;
+    }
     if(GAME_MODE!=='creative'){
       if((this.inventoryCounts[heldId]||0)<=0) return;
     }
@@ -6663,6 +7003,151 @@ class Game{
 
   markChunkRebuildsAround(wx,wy,wz){
     // handled already by world.setBlock's dirty marking; kept here for symmetry/hooks
+  }
+
+  /* ---------------- Cactus ----------------
+     Rules: it can only be placed on sand (id 5), or on top of another cactus (so you can
+     grow a column); if what it stands on is removed it pops off; touching one hurts. */
+  canPlaceCactusAt(x,y,z){
+    const under = this.world.getBlock(x,y-1,z);
+    return under===5 || under===40;
+  }
+  // Called after the block at (x,y-1,z) was removed: any cactus above it has lost its support.
+  _cactusCollapseFrom(x,y,z){
+    let guard = 0;
+    while(guard++ < 64 && this.world.getBlock(x,y,z)===40 && !this.canPlaceCactusAt(x,y,z)){
+      this.world.setBlock(x,y,z,0);
+      this.syncBlockChange(x,y,z,0);
+      if(GAME_MODE==='survival'){
+        this._spawnDrop(40, 1, undefined, {
+          pos: new THREE.Vector3(x+0.5, y+0.4, z+0.5),
+          vel: new THREE.Vector3((Math.random()-0.5)*2, 3, (Math.random()-0.5)*2),
+          delay: 0.45, magnet: true
+        });
+      }
+      y++;
+    }
+  }
+  // True if the player's body touches (or is within a hair of) a cactus block.
+  _touchingCactus(){
+    const w = this.width/2, e = 0.07, p = this.pos;
+    for(let bx=Math.floor(p.x-w-e); bx<=Math.floor(p.x+w+e); bx++)
+      for(let bz=Math.floor(p.z-w-e); bz<=Math.floor(p.z+w+e); bz++)
+        for(let by=Math.floor(p.y-e); by<=Math.floor(p.y+this.height+e); by++)
+          if(this.world.getBlock(bx,by,bz)===40) return { x:bx+0.5, z:bz+0.5 };
+    return null;
+  }
+  _updateCactus(){
+    if(GAME_MODE!=='survival' || this.flying) return;
+    const c = this._touchingCactus();
+    if(!c) return;
+    const before = this.health;
+    this.damage(1); // damage() already enforces the 0.5s hurt cooldown, so this is 1 point per half second
+    if(this.health < before){
+      // a little shove away from the spines
+      const k = (this._kb = this._kb || { x:0, z:0 });
+      let dx = this.pos.x - c.x, dz = this.pos.z - c.z; const l = Math.hypot(dx,dz) || 1;
+      k.x += dx/l*2.5; k.z += dz/l*2.5;
+      if(this.dead) this.showCenterMsg('Pricked to death by a cactus', 1400);
+    }
+  }
+
+  /* ---------------- Hunger ----------------
+     Survival only. food is 0..20 (10 drumsticks). Moving, jumping, mining and fighting build up
+     "exhaustion"; every 4.0 of it burns one point of hidden saturation, and once that is gone one
+     point of food. Eat (right-click food in hand) to refill. Food >= 18 heals you slowly, food 0
+     starves you down to half a heart, and you cannot sprint at 6 or below. */
+  addExhaustion(a){
+    if(GAME_MODE!=='survival' || this.dead || !(a>0)) return;
+    this.exhaustion += a;
+  }
+  updateHunger(delta){
+    if(GAME_MODE!=='survival') return;
+    if(this._eatCD > 0) this._eatCD = Math.max(0, this._eatCD - delta);
+    if(this.exhaustion >= 4){
+      this.exhaustion -= 4;
+      if(this.saturation > 0) this.saturation = Math.max(0, this.saturation - 1);
+      else if(this.food > 0){ this.food--; this.updateHungerUI(); }
+    }
+    if(this.food >= 18 && this.health < this.maxHealth){
+      const fast = this.food >= this.maxFood && this.saturation > 0;
+      this._regenT += delta;
+      if(this._regenT >= (fast ? 0.5 : 4)){
+        this._regenT = 0;
+        this.heal(1);
+        this.addExhaustion(fast ? 1.2 : 6);
+      }
+    } else this._regenT = 0;
+    if(this.food <= 0){
+      this._starveT += delta;
+      if(this._starveT >= 4){
+        this._starveT = 0;
+        if(this.health > 1) this.damage(1); // starvation never finishes you off, it just leaves you on half a heart
+      }
+    } else this._starveT = 0;
+  }
+  resetHunger(){
+    this.food = this.maxFood; this.saturation = 5; this.exhaustion = 0;
+    this._regenT = 0; this._starveT = 0;
+    this.updateHungerUI();
+  }
+  // Right-click with food in hand. Returns true if the click was consumed.
+  tryEat(){
+    if(GAME_MODE!=='survival' || this.dead) return false;
+    const id = this.selectedBlock, it = ITEMS[id];
+    if(!it || !it.food) return false;
+    if(this._eatCD > 0) return true;
+    if((this.inventoryCounts[id]||0) <= 0) return true;
+    if(this.food >= this.maxFood){ this.showCenterMsg('You are not hungry', 1000); return true; }
+    this._eatCD = 0.6;
+    this.food = Math.min(this.maxFood, this.food + it.food);
+    this.saturation = Math.min(this.food, this.saturation + (it.sat || 0));
+    this.inventoryCounts[id]--;
+    if(this.inventoryCounts[id] <= 0){
+      delete this.inventoryCounts[id];
+      const si = this.hotbar.indexOf(id); if(si !== -1) this.hotbar[si] = 0;
+      this.selectedBlock = 0;
+    }
+    this._eatSound();
+    this._swingOnce();
+    this.updateHungerUI();
+    this.updateHotbarUI();
+    if(document.getElementById('inventoryPanel').style.display==='flex') this._refreshAll();
+    return true;
+  }
+  _eatSound(){
+    try{
+      if(!this._actx) this._actx = new (window.AudioContext||window.webkitAudioContext)();
+      const ctx = this._actx;
+      if(ctx.state === 'suspended') ctx.resume().catch(()=>{});
+      const vol = Math.max(0, Math.min(1, (SETTINGS.volume ?? 70)/100)) * 0.5;
+      for(let i=0;i<3;i++){ // three crunchy bites
+        const t = ctx.currentTime + i*0.12, len = Math.floor(ctx.sampleRate*0.07);
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+        for(let k=0;k<len;k++) d[k] = (Math.random()*2-1) * Math.pow(1-k/len, 2.2);
+        const src = ctx.createBufferSource(); src.buffer = buf;
+        const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900 + Math.random()*500; f.Q.value = 0.9;
+        const g = ctx.createGain(); g.gain.value = vol;
+        src.connect(f); f.connect(g); g.connect(ctx.destination); src.start(t);
+      }
+    }catch(e){}
+  }
+  // Draws the drumsticks. The row is laid out right-to-left (see CSS) so the bar empties from the left.
+  updateHungerUI(){
+    const row = document.getElementById('hungerRow');
+    if(!row) return;
+    row.innerHTML = '';
+    if(GAME_MODE!=='survival') return;
+    const low = this.food <= 6;
+    for(let i=0;i<10;i++){
+      const v = this.food - i*2; // 2=full, 1=half, <=0=empty
+      const img = document.createElement('img');
+      img.className = 'hunger' + (low ? ' low' : '');
+      img.src = hungerIconDataUrl(v>=2 ? 'full' : v===1 ? 'half' : 'empty');
+      img.alt = '';
+      row.appendChild(img);
+    }
+    row.title = 'Hunger ' + this.food + '/' + this.maxFood;
   }
 
   syncBlockChange(x,y,z,id){
@@ -6902,6 +7387,7 @@ class Game{
   attackMob(hit){
     this._swingOnce();
     const { mob, kind, list } = hit;
+    this.addExhaustion(0.1);
     const dmg = GAME_MODE==='creative' ? mob.health : this.meleeDamage();
     mob.health -= dmg;
     mob.hitFlashT = 0.15;
@@ -6982,7 +7468,8 @@ class Game{
       localStorage.setItem('vf_room_' + WORLD_ID, JSON.stringify({
         pos:{ x:this.pos.x, y:this.pos.y, z:this.pos.z }, yaw:this.yaw, pitch:this.pitch,
         hotbar:this.hotbar, selectedBlock:this.selectedBlock, inventoryCounts:this.inventoryCounts,
-        toolDurability:this.toolDurability, health:this.health, maxHealth:this.maxHealth, savedAt:Date.now()
+        toolDurability:this.toolDurability, health:this.health, maxHealth:this.maxHealth,
+        food:this.food, saturation:this.saturation, savedAt:Date.now()
       }));
       return true;
     }catch(e){ console.warn('room save failed', e); return false; }
@@ -7012,6 +7499,8 @@ class Game{
       hotbar: this.hotbar,
       inventoryCounts: this.inventoryCounts,
       toolDurability: this.toolDurability,
+      health: this.health, maxHealth: this.maxHealth,
+      food: this.food, saturation: this.saturation,
       blockDiffs: this.blockDiffs,
       dayTime: this.dayTime,
       savedAt: Date.now(),
@@ -7175,7 +7664,8 @@ class Game{
     let speed = this.flying?9:4.3;
     if(inW) speed *= 0.62;
     if(this.crouching) speed *= 0.35;
-    const sprint = (!this.crouching && (KEY['ShiftLeft'] || this.mobileSprint)) ? (inW?1.3:1.4) : 1;
+    const tooHungry = GAME_MODE==='survival' && this.food <= 6; // no sprinting on an empty stomach
+    const sprint = (!this.crouching && !tooHungry && (KEY['ShiftLeft'] || this.mobileSprint)) ? (inW?1.3:1.4) : 1;
     let mx=0, mz=0;
     if(KEY['KeyW']) mz -= 1;
     if(KEY['KeyS']) mz += 1;
@@ -7201,6 +7691,10 @@ class Game{
       if(Math.abs(this._kb.x) < 0.05 && Math.abs(this._kb.z) < 0.05){ this._kb.x = 0; this._kb.z = 0; }
     }
 
+    if(GAME_MODE==='survival' && !this.flying && len>0){
+      const stepDist = Math.hypot(this.vel.x, this.vel.z) * delta;
+      if(sprint>1) this.addExhaustion(stepDist*0.1); else if(inW) this.addExhaustion(stepDist*0.01);
+    }
     if(this.flying){
       let vy=0;
       if(KEY['Space']) vy+=1;
@@ -7226,7 +7720,7 @@ class Game{
       }
     } else {
       this.vel.y -= 22*delta; // gravity
-      if(KEY['Space'] && this.onGround){ this.vel.y = 8.0; }
+      if(KEY['Space'] && this.onGround){ this.vel.y = 8.0; this.addExhaustion(sprint>1 ? 0.2 : 0.05); }
       if(this.vel.y < -40) this.vel.y=-40;
     }
     this.collideAndMove(delta);
@@ -7283,17 +7777,22 @@ class Game{
     if(!id){ root.add(this._handArm); this._handPreset = HP.arm; return; }
     if(BLOCKS[id] && !ITEMS[id]){
       const def = BLOCKS[id];
-      const geo = new THREE.BoxGeometry(1, 1, 1);
-      const uv = geo.attributes.uv;
-      const faces = ['side','side','top','bottom','side','side']; // px, nx, py, ny, pz, nz
-      for(let f=0; f<6; f++){
-        const r = BlockAtlas.rect(faceMaterialKey(id, faces[f]));
-        for(let v=0; v<4; v++){
-          const i = f*4 + v;
-          uv.setXY(i, r[0] + uv.getX(i)*(r[2]-r[0]), r[1] + uv.getY(i)*(r[3]-r[1]));
+      let geo;
+      if(def.boxes){
+        geo = buildShapeGeometry(id); // stairs / door / bed / carpet: hold the actual shape
+      } else {
+        geo = new THREE.BoxGeometry(1, 1, 1);
+        const uv = geo.attributes.uv;
+        const faces = ['side','side','top','bottom','side','side']; // px, nx, py, ny, pz, nz
+        for(let f=0; f<6; f++){
+          const r = BlockAtlas.rect(faceMaterialKey(id, faces[f]));
+          for(let v=0; v<4; v++){
+            const i = f*4 + v;
+            uv.setXY(i, r[0] + uv.getX(i)*(r[2]-r[0]), r[1] + uv.getY(i)*(r[3]-r[1]));
+          }
         }
+        uv.needsUpdate = true;
       }
-      uv.needsUpdate = true;
       const mat = new THREE.MeshLambertMaterial({ map: BlockAtlas.texture, transparent: !!def.transparent, alphaTest: def.transparent ? 0.3 : 0 });
       root.add(new THREE.Mesh(geo, mat));
       this._handPreset = HP.block;
@@ -7511,10 +8010,18 @@ class Game{
 
   /* ---------------- Swimming helpers / FX ---------------- */
   _isWaterAt(x,y,z){
-    const id = this.world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z));
+    const bx = Math.floor(x), by = Math.floor(y), bz = Math.floor(z);
+    const id = this.world.getBlock(bx,by,bz);
     if(!id) return false;
     const d = BLOCKS[id];
-    return !!(d && d.liquid && (d.liquidFamily||'water')==='water');
+    if(!(d && d.liquid && (d.liquidFamily||'water')==='water')) return false;
+    // a thin trickle only wets you up to its surface (same height the mesher draws)
+    if(!d.isSource){
+      const above = BLOCKS[this.world.getBlock(bx,by+1,bz)];
+      const fed = !!(above && above.liquid && (above.liquidFamily||'water')==='water');
+      if(!fed) return (y - by) < 0.2 + (0.875-0.2)*(d.flowLevel/7);
+    }
+    return true;
   }
 
   _updateSwimFX(){
@@ -8273,6 +8780,7 @@ class Game{
     this._swingOnce();
     if(this._pvpCd > 0) return;
     this._pvpCd = 0.55;
+    this.addExhaustion(0.1);
     const dmg = Math.max(1, Math.ceil(this.meleeDamage() * 0.6));
     let kx = hit.p.current.x - this.pos.x, kz = hit.p.current.z - this.pos.z;
     const kl = Math.hypot(kx, kz) || 1; kx /= kl; kz /= kl;
@@ -8544,6 +9052,7 @@ class Game{
 
   respawn(){
     this.health = this.maxHealth;
+    this.resetHunger();
     this.dead = false;
     this.vel.set(0,0,0);
     this.pos.copy(this.respawnPos);
@@ -8619,6 +9128,7 @@ class Game{
     this.clock = new THREE.Clock();
     this._frameCount=0; this._fpsTimer=0; this.fps=0;
     this.updateHealthUI();
+    this.updateHungerUI();
     // Periodic autosave for offline worlds, so progress isn't lost if the
     // tab is closed without using Save & Quit. Silent unless it fails —
     // showSaveToast still pops the small bottom-of-screen indicator.
@@ -8669,6 +9179,8 @@ class Game{
           if(!this._contextLost) this.updateChunkStreaming();
           this.updateMining(delta);
           this._updateMiningFX(delta);
+          this.updateHunger(delta);
+          this._updateCactus();
           // Falling out of the world hurts as normal — the void portal is only
           // triggered by walking into one of the two arches, not by falling.
           if(GAME_MODE==='survival' && this.pos.y < MIN_Y-8){
@@ -8679,9 +9191,9 @@ class Game{
         }
         if(!this.paused){
           this._liquidTickAccum = (this._liquidTickAccum||0) + delta;
-          if(this._liquidTickAccum >= 0.15){
+          if(this._liquidTickAccum >= FLOW_TICK){
             this._liquidTickAccum = 0;
-            this.world.stepLiquids(300);
+            this.world.stepLiquids(FLOW_BUDGET);
           }
         }
         this._updateClouds(delta);
@@ -9103,8 +9615,72 @@ const iconCache = {};
 // URLs that failed to load (e.g. a block with no PNG in assets/blocks) — icons for
 // those fall back to the procedural pseudo-3D cube instead of a broken <img>.
 const MISSING_ICON_URLS = new Set();
+/* Shaped blocks (stairs, carpets, doors, beds) are drawn as their real model: every box of the
+   block is projected isometrically and textured from the block atlas, exactly like the world mesher does.
+   The cache is keyed on the atlas version so icons redraw once custom/hardcoded textures finish loading. */
+const shapeIconCache = {};
+function shapeIconDataUrl(blockId){
+  const ver = BlockAtlas.texture.version;
+  const hit = shapeIconCache[blockId];
+  if(hit && hit.ver === ver) return hit.url;
+  const b = BLOCKS[blockId];
+  const N = 64, c = makeCanvas(N), ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const atlas = BlockAtlas.texture.image;
+  const P = (x,y,z)=> [32 + (x-z)*22, 34 + (x+z)*11 - y*24];   // isometric projection of a unit cube
+  const tile = (face)=>{
+    const r = BlockAtlas.rect(faceMaterialKey(blockId, face));
+    return [r[0]*ATLAS_SIZE, (1-r[3])*ATLAS_SIZE, ATLAS_TILE, ATLAS_TILE];
+  };
+  // one textured parallelogram: p0 = origin corner, pu/pv = where the texture's u/v axes run to
+  const quad = (face, p0, pu, pv, shade)=>{
+    const t = tile(face), W = t[2], H = t[3];
+    ctx.save();
+    ctx.setTransform((pu[0]-p0[0])/W, (pu[1]-p0[1])/W, (pv[0]-p0[0])/H, (pv[1]-p0[1])/H, p0[0], p0[1]);
+    try{ ctx.drawImage(atlas, t[0], t[1], W, H, 0, 0, W, H); }catch(e){}
+    if(shade > 0){ ctx.fillStyle = 'rgba(0,0,0,'+shade+')'; ctx.fillRect(0, 0, W, H); }
+    ctx.restore();
+  };
+  const boxes = b.boxes.slice().sort((a,q)=> (a[1]-q[1]) || ((a[0]+a[2])-(q[0]+q[2])));
+  for(const [x0,y0,z0,x1,y1,z1] of boxes){
+    quad('side', P(x0,y1,z1), P(x1,y1,z1), P(x0,y0,z1), 0.22);   // front (+z)
+    quad('side', P(x1,y1,z0), P(x1,y1,z1), P(x1,y0,z0), 0.38);   // right (+x)
+    quad('top',  P(x0,y1,z0), P(x1,y1,z0), P(x0,y1,z1), 0);      // top
+  }
+  const url = c.toDataURL();
+  shapeIconCache[blockId] = { ver, url };
+  return url;
+}
+// Real geometry of a shaped block, centred on the origin, for the hand models.
+function buildShapeGeometry(blockId){
+  const b = BLOCKS[blockId];
+  const pos = [], nor = [], uv = [], idx = [];
+  const kinds = ['side','side','top','bottom','side','side']; // same order as FACE_DEFS
+  for(const q of b.boxes){
+    for(let f=0; f<6; f++){
+      const fd = FACE_DEFS[f];
+      const r = BlockAtlas.rect(faceMaterialKey(blockId, kinds[f]));
+      const start = pos.length/3;
+      for(let k=0; k<4; k++){
+        const cn = fd.corners[k];
+        pos.push((cn[0] ? q[3] : q[0]) - 0.5, (cn[1] ? q[4] : q[1]) - 0.5, (cn[2] ? q[5] : q[2]) - 0.5);
+        nor.push(fd.normal[0], fd.normal[1], fd.normal[2]);
+        const u = (k===2 || k===3) ? 1 : 0, v = (k===1 || k===2) ? 1 : 0;
+        uv.push(r[0] + (r[2]-r[0])*u, r[1] + (r[3]-r[1])*v);
+      }
+      idx.push(start, start+1, start+2, start, start+2, start+3);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  return geo;
+}
 function iconDataUrl(blockId){
   if(ITEMS[blockId]) return itemIconDataUrl(blockId); // hand items use flat icons, not cube faces
+  if(BLOCKS[blockId] && BLOCKS[blockId].boxes) return shapeIconDataUrl(blockId); // stairs, doors, beds, carpets: draw the real model
   if(iconCache[blockId]) return iconCache[blockId];
 
   const b = BLOCKS[blockId];
@@ -9319,6 +9895,40 @@ function heartIconDataUrl(state){
   const url = c.toDataURL();
   heartIconCache[state] = url;
   return url;
+}
+
+
+// Pixel-art drumstick for the hunger row. state: 'full'|'half'|'empty'. Drawn in code, no asset needed.
+const HUNGER_ART = [
+"................",
+"..........KKKK..",
+".........KRRRRK.",
+"........KRHHRRRK",
+"........KRHRRRRK",
+"........KRRRRRRK",
+".......KRRRRRRK.",
+"......KRRRRRRK..",
+".....KRRRRRKK...",
+"....KRRRRKK.....",
+"...KBRRKK.......",
+"..KBWKK.........",
+".KBWWK..........",
+".KWWBK..........",
+"..KKK...........",
+"................",
+];
+const hungerIconCache = {};
+function hungerIconDataUrl(state){
+  if(hungerIconCache[state]) return hungerIconCache[state];
+  const c = makeCanvas(16), ctx = c.getContext('2d');
+  const full  = { K:'#000000', R:'#b5532a', H:'#e08a52', B:'#c9b79a', W:'#f4ead6' };
+  const empty = { K:'#000000', R:'#3a2a22', H:'#3a2a22', B:'#4a4036', W:'#4a4036' };
+  for(let y=0;y<16;y++) for(let x=0;x<16;x++){
+    const ch = HUNGER_ART[y][x]; if(ch==='.') continue;
+    const pal = (state==='full' || (state==='half' && x<8)) ? full : empty;
+    ctx.fillStyle = pal[ch]; ctx.fillRect(x,y,1,1);
+  }
+  return (hungerIconCache[state] = c.toDataURL());
 }
 
 /* -------------------------------------------------------------------------
@@ -9729,6 +10339,13 @@ async function launchGame(){
     gameInstance.selectedSlot = restoredSlotIdx !== -1 ? restoredSlotIdx : 0; }
     gameInstance.inventoryCounts = PENDING_LOAD.inventoryCounts || gameInstance.inventoryCounts;
     gameInstance.toolDurability = PENDING_LOAD.toolDurability || gameInstance.toolDurability;
+    if(Number.isFinite(PENDING_LOAD.food)){
+      gameInstance.food = Math.max(0, Math.min(gameInstance.maxFood, PENDING_LOAD.food));
+      gameInstance.saturation = Number.isFinite(PENDING_LOAD.saturation) ? Math.max(0, Math.min(gameInstance.food, PENDING_LOAD.saturation)) : 0;
+    }
+    if(Number.isFinite(PENDING_LOAD.health) && PENDING_LOAD.health > 0){
+      gameInstance.health = Math.min(gameInstance.maxHealth, PENDING_LOAD.health);
+    }
     gameInstance.worldId = PENDING_LOAD.worldId || null;
     gameInstance.worldName = PENDING_LOAD.worldName || null;
     // re-apply every block that was changed since generation
@@ -9790,6 +10407,10 @@ async function launchGame(){
           const si = gameInstance.hotbar.indexOf(gameInstance.selectedBlock);
           gameInstance.selectedSlot = si !== -1 ? si : 0;
           if(Number.isFinite(st.health) && st.health > 0){ const hp = st.maxHealth ? st.health : st.health*2; gameInstance.health = Math.min(gameInstance.maxHealth, hp); }
+          if(Number.isFinite(st.food)){
+            gameInstance.food = Math.max(0, Math.min(gameInstance.maxFood, st.food));
+            gameInstance.saturation = Number.isFinite(st.saturation) ? Math.max(0, Math.min(gameInstance.food, st.saturation)) : 0;
+          }
         }
       }catch(e){ console.warn('room restore failed', e); }
     }
