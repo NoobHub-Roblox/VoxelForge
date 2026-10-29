@@ -4279,7 +4279,10 @@ const ZOMBIE_SKIN_TEX = [];
 // ---- Cow skin: assets/mobs/cow.png, a 64x64 tile map (body @0,0  head @0,32  leg x4 @32,32  horn x2 @48,32).
 // Each part is a standard box unwrap (top/bottom row, then right/front/left/back), see buildMobModel.
 // A placeholder copy is embedded as a fallback so the cow is never untextured.
-const COW_SKIN_URLS = ['assets/mobs/cow.png', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABf0lEQVR4nO2YvW7CMBDHHZSJuSMTE4pQ5yoz6oSYUSf6Egw8QAeegpEZdUJ9gKojQ54gU9WZlU5UwfGRD59zcf3/TcEKd5fzfdmRYuInzy5cskw8jJLIhdyBC6E+EXMKWzzPS2uH4zunCnaCjwA4QNoAaeAAaQOkYeutvs4BrG2QQm+PfWqNwacAHCBtgDTsNaDP+W4CEdCFkj5HQfBzAFLA9c5xkSbjkp1tUkuPpL8aYLrMaKtEgraXMUgBaQOUko2+Rg6QvPNzpQcpcH3wpdhRtLUfESBtgFKy0Rf5Mghx4WqkBgD4CVkQiqcvjlNXXaqKMiU3+9zd/C95WtXSjzlA2gBb9J3X16sigXSA76NxXcQjoOkgpr//nX9Z6Rd3gC11ix1FbFvtKaid7dsoGnwXuOuAyTRVk2lK/v4PdH4a1FPAVr9tSgWfAne7wPnjZFwfzh6dGCNBZRtcbjdqv34rPXPxsnxlldeUyhQofjD3xwMAAAAAAAAAAAAA0D2/oAB28NAi0nQAAAAASUVORK5CYII='];
+// Your cow.png has every tile 1 px to the right of the guide (body top starts at x=19, not 18, etc).
+// Set this to 0 if you re-export the PNG exactly on the guide's grid.
+const COW_UV_SHIFT_X = 1;
+const COW_SKIN_URLS = ['assets/mobs/cow.png', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAADaUlEQVR4AeyYPW4UQRCFd0kQIRkXACekSJyAE3AFJFKkzRw72xtwBU7ABUAiJbGJyMgICY2/lt6oXHRNd+/OzHqHRjxXdf3X69Za3kebCf+9vnh2OycmHHUoNSkBQ9UzUjoBZ3RZs4zaX8AstJ5R0f4CzuiyZhm1v4BZaK0s+vbdrjJyvrBFXwALW7AWZ+SpsBgBp140IngxAqIBTm3vBCx1A58+7pdq1dTn5C9gaWI8O5MSwAedhW/Gsh4+JndWzZzvWNukBBw7zCnyEwFTfIuz3+9vowWmukF65NA6v50zEWANh+o8bZvrz/ggAhkBv0UUZ+25PtZf0hMBNC0F4idO4OzBMIL36RzlY1fMMZI6Qk2dRACBpST8xAn+LHtOQkrOLltUS3byLZTnpeJl5wx0zsmBADlzCTkb8ZEdXwnH5NaQYfuP9fqHABJ9Ag2xe0R2H7fE2c/se0b+LAE+mbNf1p+JsfANS/E2dy7dz0SfkIBcMEsIJHuQI+BDRwrKlbR26VYSZ89jekusrRMSYINqdL+sciK7/JKHLqB85CE1JiOAAY4FC1gcUs/mo5dqJAJ2u902h6/Xv7a1yOXLVltjjjjNIEkPS0oiwBr+N70TsPYbL+03+gJa/8ryf6mVmkf+Ut8o7+rq6tYiirP2UQL4FQZswtr0UQK07EMnQbeueSUju/zIKgJqfp9S7BxRRQCL8QpywCdAlIXsJVn72aH+tfGlvvirCSB4CUBg1CfyXV5ebscQ1cOeCIg+dQkYQzSQclR3yhtT7alkIoCnlSvIggAfUuDcAvJa4peMTQTQMCIBnwcLAexRHnZATAnUEmws+YLsxElH+jO2FgwEREnfr/9sPn+7Gdzo2AbDneKHvDMN//FxYFCB80NBkYCXF082b169GOZFxzYYKhSREIWW/D5PRCK9r/V8jwAGAbbIl/c/NzkoRkNIervOJUlfUIqb2n+PgKj4ze8fg8vqMmp5FgDWjg/IVpI2X7Et+cqplVUEvHj6fKhn9cE4k8LiYKbyqWwiQN+WSPKtibD98Hibg/xW5vKtX3rqbH4oT1JxtdKUalYTAc1ZDzihdbROQCtja4vvL2BtN9q6T38BrYytLb6/gLXdaOs+/QW0Mra2+P4C1najrfv0F9DK2Nri+ws49xs9dv6/AAAA///zM9fhAAAABklEQVQDALDNy5962aC3AAAAAElFTkSuQmCC'];
 let COW_SKIN_CANVAS = null;
 const COW_SKIN_TEX = [];
 function getCowSkinCanvas(){
@@ -7477,22 +7480,22 @@ class Game{
     const parts = {};
     if(kind==='cow'){
       // Textured from assets/mobs/cow.png. 1 skin pixel = 1/16 block. Front of the cow is -Z (the way it walks).
-      const P = 1/16;
+      const P = 1/16, UX = COW_UV_SHIFT_X;
       const R = (u,v,w,h,d)=>({ top:[u+d,v,w,d], bottom:[u+d+w,v,w,d], right:[u,v+d,d,h], front:[u+d,v+d,w,h], left:[u+d+w,v+d,d,h], back:[u+2*d+w,v+d,w,h] });
       const tex = new THREE.CanvasTexture(getCowSkinCanvas());
       tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.needsUpdate = true;
       COW_SKIN_TEX.push(tex);
       const mat = new THREE.MeshLambertMaterial({ map: tex });
       const mk = (w,h,d,u,v)=> new THREE.Mesh(skinBox(w*P,h*P,d*P,R(u,v,w,h,d),0), mat);
-      const body = mk(12,10,18, 0,0);   body.position.set(0, 15*P, 0);
-      const head = mk(8,8,6, 0,32);     head.position.set(0, 17*P, -11.5*P);
-      const hornL = mk(2,3,2, 48,32);   hornL.position.set(-5*P, 22*P, -10.5*P);
-      const hornR = mk(2,3,2, 48,32);   hornR.position.set( 5*P, 22*P, -10.5*P);
+      const body = mk(12,10,18, UX+0,0);   body.position.set(0, 15*P, 0);
+      const head = mk(8,8,6, UX+0,32);     head.position.set(0, 17*P, -11.5*P);
+      const hornL = mk(2,3,2, UX+48,32);   hornL.position.set(-5*P, 22*P, -10.5*P);
+      const hornR = mk(2,3,2, UX+48,32);   hornR.position.set( 5*P, 22*P, -10.5*P);
       const legMeshes = [], legs = [];
       // legs hang from a hip pivot so they swing instead of spinning in place; front legs are at -Z
       for(const [lx,lz] of [[-4,-6.5],[4,-6.5],[4,6.5],[-4,6.5]]){   // order puts diagonal pairs in step
         const pivot = new THREE.Group(); pivot.position.set(lx*P, 10*P, lz*P);
-        const m = mk(4,10,4, 32,32); m.position.y = -5*P;
+        const m = mk(4,10,4, UX+32,32); m.position.y = -5*P;
         pivot.add(m); group.add(pivot); legs.push(pivot); legMeshes.push(m);
       }
       group.add(body, head, hornL, hornR);
