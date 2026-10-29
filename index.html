@@ -7544,12 +7544,18 @@ class Game{
   stepMobPos(m, delta, speed, headingYaw){
     const dx = -Math.sin(headingYaw)*speed*delta;
     const dz = -Math.cos(headingYaw)*speed*delta;
-    const nx = m.pos.x+dx, nz = m.pos.z+dz;
-    // don't walk off into a solid wall or straight off a big ledge
-    const groundY = this.world.heightAt(Math.floor(nx), Math.floor(nz))+1;
-    if(!this.isSolidAt(nx, groundY, nz) && Math.abs(groundY-m.pos.y)<=1.1){
+    // Mobs walk "forward" = (-sin yaw, -cos yaw), the same convention as the player, and the zombie
+    // model's face points that way too. Try the full step, then each axis alone so they slide along walls.
+    const tryStep = (nx, nz)=>{
+      // don't walk off into a solid wall or straight off a big ledge
+      const groundY = this.world.heightAt(Math.floor(nx), Math.floor(nz))+1;
+      if(this.isSolidAt(nx, groundY, nz) || Math.abs(groundY-m.pos.y)>1.1) return false;
       m.pos.x = nx; m.pos.z = nz;
       m.pos.y += (groundY-m.pos.y)*Math.min(1,delta*10); // smooth step up/down
+      return true;
+    };
+    if(!tryStep(m.pos.x+dx, m.pos.z+dz)){
+      if(!tryStep(m.pos.x+dx, m.pos.z)) tryStep(m.pos.x, m.pos.z+dz);
     }
     m.yaw = headingYaw;
   }
@@ -7569,7 +7575,7 @@ class Game{
 
       if(m.fleeT>0){
         m.fleeT -= delta;
-        const awayYaw = Math.atan2(this.pos.x-m.pos.x, this.pos.z-m.pos.z) + Math.PI;
+        const awayYaw = Math.atan2(this.pos.x-m.pos.x, this.pos.z-m.pos.z); // forward = away from player
         this.stepMobPos(m, delta, 3.2, awayYaw);
       } else {
         m.wanderT -= delta;
@@ -7581,7 +7587,7 @@ class Game{
         if(m.wandering) this.stepMobPos(m, delta, 1.1, m.wanderYaw);
       }
       m.group.position.copy(m.pos);
-      m.group.rotation.y = m.yaw;
+      m.group.rotation.y = m.yaw + Math.PI; // animal heads sit on +z, walking direction is -z
       const legBob = Math.sin(m.bobT)*0.35;
       if(m.parts.legs) m.parts.legs.forEach((leg,idx)=>{ leg.rotation.x = (idx%2===0?1:-1)*legBob*(m.wandering||m.fleeT>0?1:0.15); });
     }
@@ -7600,7 +7606,7 @@ class Game{
 
       const CHASE_RANGE = 9;
       if(distToPlayer < CHASE_RANGE){
-        const towardYaw = Math.atan2(this.pos.x-m.pos.x, this.pos.z-m.pos.z);
+        const towardYaw = Math.atan2(this.pos.x-m.pos.x, this.pos.z-m.pos.z) + Math.PI; // forward (-sin,-cos) points at the player
         if(distToPlayer > 1.1){
           this.stepMobPos(m, delta, 2.6, towardYaw);
         } else {
