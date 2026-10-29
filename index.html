@@ -517,6 +517,10 @@
   .craftSlot, .craftOutSlot, .invSlot2, .invSlot{user-select:none; -webkit-user-select:none; touch-action:none;}
   .craftSlot:hover, .craftOutSlot:hover, .invSlot2:hover{border-color:#6b7590;}
   .craftSlot.spreadHL{background:#e0742a55; border-color:var(--vf-orange);}
+  /* a held stack: freeze scrolling in the windows so a finger can drag it anywhere */
+  body.holding-cursor #inventoryPanel, body.holding-cursor #craftingPanel,
+  body.holding-cursor #inventoryPanel *, body.holding-cursor #craftingPanel *{touch-action:none !important;}
+  body.mobile-ui #cursorStack{width:52px; height:52px;}
   .craftOutSlot.ready{border-color:var(--vf-orange); box-shadow:0 0 8px #e0742a88;}
   .craftSlot .cnt, .craftOutSlot .cnt, .invSlot2 .cnt, .invSlot .cnt{font-size:11px; font-weight:700;}
 
@@ -1116,7 +1120,20 @@
         <option value="low">Low</option>
         <option value="medium" selected>Medium</option>
         <option value="high">High</option>
+        <option value="ultra">Ultra (strong GPUs, optional)</option>
       </select>
+    </div>
+    <div class="settingRow">
+      <label for="shadowsToggle">Sun shadows (heavy)</label>
+      <input type="checkbox" id="shadowsToggle">
+    </div>
+    <div class="settingRow">
+      <label for="fancySkyToggle">Fancy sky: sun, moon &amp; stars</label>
+      <input type="checkbox" id="fancySkyToggle">
+    </div>
+    <div class="settingRow">
+      <label for="aaToggle">Anti-aliasing (reload the page to apply)</label>
+      <input type="checkbox" id="aaToggle">
     </div>
     <div class="settingRow">
       <label for="dynResToggle">Dynamic resolution (auto-lowers resolution when FPS drops)</label>
@@ -1212,12 +1229,17 @@ let GAME_MODE = 'survival'; // 'survival' | 'creative'
 ------------------------------------------------------------------------- */
 const DEFAULT_SETTINGS = {
   renderDistance: 4,
-  graphics: 'medium', // 'potato' | 'low' | 'medium' | 'high' — affects fog distance, pixel ratio, torch lights, mipmaps
+  graphics: 'medium', // 'potato' | 'low' | 'medium' | 'high' | 'ultra' — affects fog distance, pixel ratio, torch lights, mipmaps
   dynamicResolution: true, // auto-lower render resolution when FPS drops below ~45
   fov: 75,
   volume: 70,
   mouseSens: 10, // 1-20, mapped to an actual sensitivity multiplier
   touchSens: 14, // 4-30, finger-look speed on phones/tablets
+  // Optional extras for strong GPUs. All OFF by default; picking the 'Ultra' tier turns them on
+  // (each can then be switched off again on its own).
+  shadows: false,   // real-time sun shadows
+  fancySky: false,  // shader sky: gradient dome, sun + moon discs, twinkling stars, warm dawn/dusk glow
+  antialias: false, // MSAA edge smoothing (the browser only applies it when the page loads)
 };
 
 // Per-tier graphics profile, looked up wherever a system needs to scale
@@ -1231,6 +1253,9 @@ const GRAPHICS_PROFILES = {
   low:    { fogNear:30, fogFar:80, pixelRatioCap:1,   mipmaps:true,  torchLights:true,  maxTorchLights:6,  torchLightDist:20 },
   medium: { fogNear:60, fogFar:150,pixelRatioCap:1.5, mipmaps:true,  torchLights:true,  maxTorchLights:16, torchLightDist:32 },
   high:   { fogNear:90, fogFar:220,pixelRatioCap:2,   mipmaps:true,  torchLights:true,  maxTorchLights:32, torchLightDist:48 },
+  // Ultra: opt-in. Renders above native resolution (supersampling = smooth edges), pushes fog out
+  // as far as render distance allows, and is what switches on shadows / fancy sky / MSAA.
+  ultra:  { fogNear:120,fogFar:340,pixelRatioCap:3,   minPixelRatio:1.5, mipmaps:true, torchLights:true, maxTorchLights:48, torchLightDist:64 },
 };
 function currentGraphicsProfile(){
   return GRAPHICS_PROFILES[SETTINGS.graphics] || GRAPHICS_PROFILES.medium;
@@ -1245,6 +1270,10 @@ function loadSettings(){
   return Object.assign(base, saved || {});
 }
 let SETTINGS = loadSettings();
+function syncGfxExtras(){
+  const set = (id, v)=>{ const el = document.getElementById(id); if(el) el.checked = !!v; };
+  set('shadowsToggle', SETTINGS.shadows); set('fancySkyToggle', SETTINGS.fancySky); set('aaToggle', SETTINGS.antialias);
+}
 function saveSettingsToStorage(){
   localStorage.setItem('vf_settings', JSON.stringify(SETTINGS));
 }
@@ -2149,6 +2178,8 @@ const BlockAtlas = (function(){
 // 0 at full day -> 1 at night; scales how strongly baked torch light shows.
 // Updated from updateDayNight().
 const chunkTorchUniform = { value: 0.3 };
+// Set from Game._applyExtraGraphics(); chunk meshes built later pick it up too.
+let CHUNK_SHADOWS = false;
 
 function patchChunkShader(shader){
   shader.uniforms.uTorch = chunkTorchUniform;
@@ -2505,7 +2536,7 @@ function buildChunkGroup(chunk, data){
     geo.boundingSphere = bound.clone();
     const mesh = new THREE.Mesh(geo, ChunkMaterials[li]);
     mesh.matrixAutoUpdate = false;
-    mesh.castShadow = false; mesh.receiveShadow = false;
+    mesh.castShadow = CHUNK_SHADOWS && li !== 2; mesh.receiveShadow = CHUNK_SHADOWS;
     group.add(mesh);
   }
   group.position.set(chunk.cx*CHUNK_SIZE, chunk.cy*CHUNK_SIZE, chunk.cz*CHUNK_SIZE);
@@ -4551,7 +4582,7 @@ class Game{
     this.scene.fog = new THREE.Fog(0x8fc7ef, 60, 150);
 
     this.camera = new THREE.PerspectiveCamera(SETTINGS.fov, innerWidth/innerHeight, 0.05, 400);
-    this.renderer = new THREE.WebGLRenderer({ canvas:this.canvas, antialias:false });
+    this.renderer = new THREE.WebGLRenderer({ canvas:this.canvas, antialias:!!SETTINGS.antialias, powerPreference:'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio,2));
     this.renderer.setSize(innerWidth, innerHeight);
 
@@ -4729,7 +4760,9 @@ class Game{
 
     // Pixel ratio: the tier sets the ceiling; dynamic resolution (see
     // _updateDynamicResolution) may sit below it while FPS is low.
-    const base = Math.min(devicePixelRatio, profile.pixelRatioCap);
+    // 'minPixelRatio' (Ultra) renders above the screen's native resolution on 1x displays:
+    // supersampling, which smooths jagged block edges. Dynamic resolution can still back it off.
+    const base = Math.max(Math.min(devicePixelRatio, profile.pixelRatioCap), profile.minPixelRatio || 0);
     if(this._drBase !== base || !SETTINGS.dynamicResolution || this._drRatio === undefined || this._drRatio > base){
       this._drRatio = base;
     }
@@ -4745,6 +4778,116 @@ class Game{
       BlockAtlas.applyFilterPolicy();
     }
     this._lastMipmapPolicy = profile.mipmaps;
+
+    this._applyExtraGraphics();
+  }
+
+  // Optional extras (shadows + shader sky). Everything here is skipped when the toggles are off,
+  // so the normal tiers render exactly as before.
+  _applyExtraGraphics(){
+    try{
+      const wantShadows = !!SETTINGS.shadows;
+      if(this._shadowsOn !== wantShadows){
+        this._shadowsOn = wantShadows;
+        CHUNK_SHADOWS = wantShadows;
+        const r = this.renderer;
+        r.shadowMap.enabled = wantShadows;
+        if(wantShadows){
+          r.shadowMap.type = THREE.PCFSoftShadowMap;
+          const coarse = !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
+          const size = coarse ? 1024 : 2048, S = coarse ? 40 : 56;
+          const sh = this.sun.shadow;
+          if(sh.mapSize.x !== size){ sh.mapSize.set(size, size); if(sh.map){ sh.map.dispose(); sh.map = null; } }
+          sh.camera.left = -S; sh.camera.right = S; sh.camera.top = S; sh.camera.bottom = -S;
+          sh.camera.near = 1; sh.camera.far = 340;
+          sh.camera.updateProjectionMatrix();
+          sh.bias = -0.0006; sh.normalBias = 0.05;
+        }
+        this.sun.castShadow = wantShadows;
+        this.chunkGroup.traverse(o=>{
+          if(!o.isMesh) return;
+          o.castShadow = wantShadows && o.material !== ChunkMaterials[2]; // glass casts no shadow
+          o.receiveShadow = wantShadows;
+        });
+        ChunkMaterials.forEach(m=>{ m.needsUpdate = true; });
+      }
+      if(SETTINGS.fancySky && !this._skyDome) this._initSkyDome();
+      if(this._skyDome) this._skyDome.visible = !!SETTINGS.fancySky && !this._inArchBClearing;
+      if(!SETTINGS.fancySky) this.sun.color.setRGB(1,1,1);
+    }catch(err){
+      console.warn('Extra graphics failed, falling back to the standard look:', err);
+      SETTINGS.shadows = false; SETTINGS.fancySky = false;
+      try{ this.renderer.shadowMap.enabled = false; this.sun.castShadow = false; CHUNK_SHADOWS = false; }catch(e){}
+      if(this._skyDome) this._skyDome.visible = false;
+    }
+  }
+
+  /* ---------------- Fancy sky (opt-in) ----------------
+     One big inverted sphere that follows the camera, shaded entirely in the fragment shader:
+     a zenith -> horizon gradient (the horizon colour IS the fog colour, so distant terrain melts into
+     it), a warm glow toward the sun at dawn/dusk, round sun + moon discs, and twinkling stars at night. */
+  _initSkyDome(){
+    this._skyU = {
+      uTop:     { value: new THREE.Color(0x4a8fd8) },
+      uHorizon: { value: new THREE.Color(0x8fc7ef) },
+      uSunDir:  { value: new THREE.Vector3(0,1,0) },
+      uMoonDir: { value: new THREE.Vector3(0,-1,0) },
+      uNight:   { value: 0 },
+      uTwilight:{ value: 0 },
+      uTime:    { value: 0 },
+    };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: this._skyU, side: THREE.BackSide, depthWrite:false, depthTest:false, fog:false,
+      vertexShader: 'varying vec3 vDir;\nvoid main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: [
+        'uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uMoonDir;',
+        'uniform float uNight; uniform float uTwilight; uniform float uTime;',
+        'varying vec3 vDir;',
+        'float hash13(vec3 p){ p = fract(p*0.3183099 + vec3(0.1,0.2,0.3)); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }',
+        'void main(){',
+        '  vec3 d = normalize(vDir);',
+        '  float h = clamp(d.y, 0.0, 1.0);',
+        '  vec3 col = mix(uHorizon, uTop, pow(h, 0.55));',
+        '  float sd = dot(d, uSunDir);',
+        '  float aboveH = smoothstep(-0.03, 0.05, d.y);',
+        '  col += vec3(1.0, 0.55, 0.25) * pow(max(sd, 0.0), 5.0) * uTwilight * 0.5 * (1.0 - h*0.7);',
+        '  col += vec3(1.0, 0.9, 0.7) * pow(max(sd, 0.0), 48.0) * 0.28 * (1.0 - uNight);',
+        '  col = mix(col, vec3(1.0, 0.97, 0.85), smoothstep(0.9968, 0.9974, sd) * aboveH);',
+        '  float md = dot(d, uMoonDir);',
+        '  float moon = smoothstep(0.9982, 0.9987, md) * aboveH;',
+        '  col = mix(col, vec3(0.88, 0.92, 1.0), moon * (0.35 + 0.65*uNight));',
+        '  if(uNight > 0.01 && d.y > 0.0){',
+        '    vec3 g = d * 190.0; vec3 id = floor(g);',
+        '    float r = hash13(id);',
+        '    float dist = length(fract(g) - 0.5);',
+        '    float star = step(0.983, r) * smoothstep(0.36, 0.06, dist);',
+        '    star *= 0.55 + 0.45 * sin(uTime*2.2 + r*80.0);',
+        '    col += vec3(0.9, 0.95, 1.0) * star * uNight * smoothstep(0.0, 0.18, d.y) * (1.0 - moon);',
+        '  }',
+        '  gl_FragColor = vec4(col, 1.0);',
+        '}',
+      ].join('\n'),
+    });
+    this._skyDome = new THREE.Mesh(new THREE.SphereGeometry(360, 32, 18), mat);
+    this._skyDome.renderOrder = -10;
+    this._skyDome.frustumCulled = false;
+    this._skyDome.matrixAutoUpdate = true;
+    this.scene.add(this._skyDome);
+  }
+  _updateSkyDome(angle, sunHeight, dayFactor, twilight, skyColor){
+    if(!this._skyDome || !this._skyDome.visible) return;
+    const u = this._skyU;
+    u.uHorizon.value.copy(skyColor);
+    const top = new THREE.Color(0x03050f).lerp(new THREE.Color(0x3b78cc), dayFactor);
+    top.lerp(new THREE.Color(0x40508f), twilight*0.45);
+    u.uTop.value.copy(top);
+    u.uSunDir.value.set(Math.cos(angle)*120, sunHeight*120 + 20, 40).normalize();
+    u.uMoonDir.value.set(-Math.cos(angle)*120, -sunHeight*120 + 20, -40).normalize();
+    u.uNight.value = Math.max(0, Math.min(1, (0.12 - sunHeight)/0.3));
+    u.uTwilight.value = twilight;
+    u.uTime.value = (this.animT || 0) + (performance.now()/1000)%1000;
+    // warmer sunlight near the horizon
+    this.sun.color.setRGB(1, 1 - twilight*0.28, 1 - twilight*0.55);
   }
 
   /* ---------------- Clouds ----------------
@@ -4994,6 +5137,7 @@ class Game{
     document.getElementById('renderDistSlider').value = SETTINGS.renderDistance;
     document.getElementById('renderDistVal').textContent = SETTINGS.renderDistance;
     document.getElementById('graphicsSelect').value = SETTINGS.graphics;
+    syncGfxExtras();
     document.getElementById('dynResToggle').checked = !!SETTINGS.dynamicResolution;
     document.getElementById('fovSlider').value = SETTINGS.fov;
     document.getElementById('fovVal').textContent = SETTINGS.fov;
@@ -5546,13 +5690,55 @@ class Game{
     const cs = document.getElementById('cursorStack');
     const move = (e)=>{
       this._ptr = {x:e.clientX, y:e.clientY};
-      if(cs) cs.style.transform = `translate(${e.clientX-22}px,${e.clientY-22}px)`;
+      this._ptrTouch = e.pointerType==='touch';
+      if(cs) cs.style.transform = this._cursorXform();
     };
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerdown', move, true);
     document.addEventListener('pointerdown', ()=>{ this._dragPick = false; }, true);
     document.addEventListener('pointerup', ()=>this._finishSpread());
     document.addEventListener('pointercancel', ()=>this._cancelSpread());
+
+    // ---- Touch drag & drop ----
+    // Touch pointers are "captured" by the element first touched, so slots under the finger never saw
+    // the drag and the held stack couldn't be carried. Here the capture is released on touch-down, a drag
+    // (> 10px) picks the stack up, the stack follows the finger, and lifting the finger drops it on whatever
+    // is underneath: crafting slots (drag over several to spread), the inventory (put back) or a hotbar slot.
+    // A plain tap / long-press is untouched and still goes through the normal slot handlers.
+    const SLOT_SEL = '.craftSlot,.craftOutSlot,.invSlot2,.invSlot,.hbSlot';
+    const winOpen = ()=> ['inventoryPanel','craftingPanel'].some(id=>{ const el = document.getElementById(id); return el && el.style.display==='flex'; });
+    this._td = null;
+    document.addEventListener('pointerdown', (e)=>{
+      if(e.pointerType!=='touch' || !winOpen()) return;
+      try{ if(e.target.releasePointerCapture) e.target.releasePointerCapture(e.pointerId); }catch(_){}
+      this._td = {id:e.pointerId, x0:e.clientX, y0:e.clientY, moved:false, startEl:e.target.closest ? e.target.closest(SLOT_SEL) : null};
+    }, true);
+    document.addEventListener('pointermove', (e)=>{
+      const td = this._td;
+      if(!td || e.pointerId!==td.id) return;
+      if(!td.moved){
+        if(Math.hypot(e.clientX-td.x0, e.clientY-td.y0) < 10) return;
+        td.moved = true;
+        const el = td.startEl;
+        if(!this.cursor.id && el && !el.classList.contains('hbSlot') && el.onpointerup){
+          el._t = Date.now();                       // a drag always grabs the whole stack
+          el.onpointerup({pointerType:'touch', shiftKey:false, ctrlKey:false, metaKey:false});
+        }
+      }
+      if(this.cursor.id) this._touchDragOver(e.clientX, e.clientY);
+    }, true);
+    document.addEventListener('pointerup', (e)=>{
+      const td = this._td;
+      if(!td || e.pointerId!==td.id) return;
+      this._td = null;
+      if(!td.moved) return;                         // tap: normal handlers deal with it
+      e.stopPropagation();
+      this._touchDrop(e.clientX, e.clientY);
+    }, true);
+    document.addEventListener('pointercancel', (e)=>{
+      if(this._td && e.pointerId===this._td.id){ this._td = null; this._cancelSpread(); }
+    }, true);
+
     // Drop: hover a stack + Q (Shift+Q = whole stack); click outside the window while holding a stack;
     // or use the Drop buttons (handy on touch).
     ['inventoryPanel','craftingPanel'].forEach(pid=>{
@@ -5588,10 +5774,43 @@ class Game{
     }, true);
   }
 
+  // On touch the held stack floats above the fingertip so the finger doesn't hide it.
+  _cursorXform(){
+    const p = this._ptr || {x:0,y:0};
+    return this._ptrTouch ? `translate(${p.x-26}px,${p.y-84}px)` : `translate(${p.x-22}px,${p.y-22}px)`;
+  }
+
+  _gridSlotAt(el){
+    const slot = el && el.closest ? el.closest('.craftSlot') : null;
+    const par = slot && slot.parentElement;
+    if(!par || (par.id!=='craftGrid3' && par.id!=='craftGrid2')) return null;
+    return {g:this._grid(par.id==='craftGrid3' ? 3 : 2), i:Array.prototype.indexOf.call(par.children, slot)};
+  }
+  _touchDragOver(x, y){
+    const hit = this._gridSlotAt(document.elementFromPoint(x, y));
+    if(!hit) return;
+    if(!this._spread) this._startSpread(hit.g, hit.i, 0);
+    else this._spreadEnter(hit.g, hit.i);
+  }
+  _touchDrop(x, y){
+    if(!this.cursor.id){ this._cancelSpread(); this._refreshAll(); return; }
+    const el = document.elementFromPoint(x, y);
+    if(this._spread){
+      if(this._gridSlotAt(el)){ this._finishSpread(); return; }   // released over the grid: place / spread
+      this._cancelSpread();
+    }
+    const hb = el && el.closest ? el.closest('.hbSlot') : null;
+    if(hb){ this._hbSlotAction(Array.prototype.indexOf.call(hb.parentElement.children, hb), false); return; }
+    if(el && el.closest && el.closest('#craftInvGrid,#invGrid,.invSlot2,.invSlot')){ this._depositCursor(false); this._refreshAll(); return; }
+    this._refreshAll();                               // anywhere else: keep holding it
+  }
+
   _updateCursorUI(){
     const cs = document.getElementById('cursorStack');
     if(!cs) return;
     const c = this.cursor;
+    // While a stack is held, the windows stop scrolling so a finger can drag it anywhere.
+    document.body.classList.toggle('holding-cursor', !!(c.id && c.count>0));
     const dhb = document.getElementById('dropHeldBtn'), dhb1 = document.getElementById('dropHeld1Btn');
     const holding = !!(c.id && c.count > 0);
     if(dhb) dhb.disabled = !holding;
@@ -5601,7 +5820,7 @@ class Game{
     const img = document.createElement('img'); img.src = iconDataUrl(c.id); cs.appendChild(img);
     if(c.count>1){ const n=document.createElement('div'); n.className='cnt'; n.textContent=c.count; cs.appendChild(n); }
     cs.style.display = 'block';
-    if(this._ptr) cs.style.transform = `translate(${this._ptr.x-22}px,${this._ptr.y-22}px)`;
+    if(this._ptr) cs.style.transform = this._cursorXform();
   }
 
   _giveItem(id, n){
@@ -5851,7 +6070,7 @@ class Game{
     const hint = document.getElementById(g.hintId);
     const touch = document.body.classList.contains('mobile-ui');
     const controls = touch
-      ? ' Tap: pick up/place · Long-press: split/place one.'
+      ? ' Tap: pick up/place · Drag a stack to move it (drag across slots to spread) · Long-press: split/place one.'
       : ' Left-click: pick up/place · Right-click: split/place one · Shift-click: quick move · Drag to spread.';
     const recipe = g.match(g.ids);
     if(recipe){
@@ -9208,6 +9427,7 @@ class Game{
         this.updateDebugPanel();
         if(this._frameCount%20===0) this.updatePlayerListUI();
 
+        if(this._skyDome && this._skyDome.visible) this._skyDome.position.copy(this.camera.position);
         if(!this._contextLost){ this.renderer.render(this.scene, this.camera); this._renderHand(); }
       }catch(err){
         console.error('Frame error (recovered, rendering continues):', err);
@@ -9337,6 +9557,7 @@ class Game{
       const voidColor = new THREE.Color(0x0d100e);
       this.scene.background = voidColor;
       this.scene.fog.color = voidColor;
+      if(this._skyDome) this._skyDome.visible = false;
       this.scene.fog.near = 8;
       this.scene.fog.far = 34;
       chunkTorchUniform.value = 1; // sunless: baked torch glow at full strength
@@ -9358,24 +9579,31 @@ class Game{
     const angle = t*Math.PI*2 - Math.PI/2; // -PI/2 at t=0 (dawn, rising in the east)
     const sunHeight = Math.sin(angle); // -1..1, negative = below horizon
     const sunDist = 120;
+    // With shadows on, the light follows the player in whole-block steps so shadow edges stay put
+    // instead of shimmering while walking.
+    const snap = this._shadowsOn ? 2 : 0;
+    const ax = snap ? Math.round(this.pos.x/snap)*snap : this.pos.x;
+    const ay = snap ? Math.round(this.pos.y/snap)*snap : this.pos.y;
+    const az = snap ? Math.round(this.pos.z/snap)*snap : this.pos.z;
     this.sun.position.set(
-      this.pos.x + Math.cos(angle)*sunDist,
-      this.pos.y + Math.max(sunHeight,-0.15)*sunDist + 20,
-      this.pos.z + 40
+      ax + Math.cos(angle)*sunDist,
+      ay + Math.max(sunHeight,-0.15)*sunDist + 20,
+      az + 40
     );
-    this.sun.target.position.copy(this.pos);
+    this.sun.target.position.set(ax, ay, az);
     if(!this.sun.target.parent) this.scene.add(this.sun.target);
 
     // brightness follows sun height, clamped so there's always a touch of
     // ambient moonlight fill rather than pure black
     const dayFactor = Math.max(0, sunHeight); // 0 at night, 1 at noon
     const twilight = Math.max(0, 1 - Math.abs(sunHeight)*2.2); // brief warm glow at dawn/dusk
-    this.sun.intensity = dayFactor*0.9;
+    this.sun.intensity = dayFactor*(this._shadowsOn ? 1.05 : 0.9);
+    if(this.renderer.shadowMap.enabled) this.renderer.shadowMap.autoUpdate = sunHeight > 0.03; // no depth pass at night
     this.moonLight.position.set(this.pos.x - Math.cos(angle)*sunDist, this.pos.y + Math.max(-sunHeight,-0.15)*sunDist + 20, this.pos.z - 40);
     this.moonLight.target.position.copy(this.pos);
     if(!this.moonLight.target.parent) this.scene.add(this.moonLight.target);
     this.moonLight.intensity = (1-dayFactor)*0.22;
-    this.ambient.intensity = 0.18 + dayFactor*0.47;
+    this.ambient.intensity = this._shadowsOn ? (0.17 + dayFactor*0.38) : (0.18 + dayFactor*0.47); // a bit less fill so shadows read
     this._dayFactor = dayFactor;
     chunkTorchUniform.value = 0.25 + 0.75*(1-dayFactor); // baked torch glow: subtle by day, full at night
 
@@ -9387,6 +9615,7 @@ class Game{
     skyColor.lerp(dawnColor, twilight*0.55);
     this.scene.background = skyColor;
     this.scene.fog.color = skyColor;
+    this._updateSkyDome(angle, sunHeight, dayFactor, twilight, skyColor);
 
     const wasNight = this.isNight;
     this.isNight = sunHeight < -0.05;
@@ -11003,6 +11232,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     document.getElementById('renderDistSlider').value = SETTINGS.renderDistance;
     document.getElementById('renderDistVal').textContent = SETTINGS.renderDistance;
     document.getElementById('graphicsSelect').value = SETTINGS.graphics;
+    syncGfxExtras();
     document.getElementById('dynResToggle').checked = !!SETTINGS.dynamicResolution;
     document.getElementById('fovSlider').value = SETTINGS.fov;
     document.getElementById('fovVal').textContent = SETTINGS.fov;
@@ -11061,8 +11291,18 @@ window.addEventListener('DOMContentLoaded', ()=>{
   });
   document.getElementById('graphicsSelect').addEventListener('change', (e)=>{
     SETTINGS.graphics = e.target.value;
+    // Picking Ultra opts into every extra; each can still be unticked afterwards.
+    if(e.target.value === 'ultra'){ SETTINGS.shadows = true; SETTINGS.fancySky = true; SETTINGS.antialias = true; }
+    syncGfxExtras();
     saveSettingsToStorage();
     if(gameInstance) gameInstance.applyGraphicsSettings();
+  });
+  [['shadowsToggle','shadows'],['fancySkyToggle','fancySky'],['aaToggle','antialias']].forEach(([id,key])=>{
+    document.getElementById(id).addEventListener('change', (e)=>{
+      SETTINGS[key] = e.target.checked;
+      saveSettingsToStorage();
+      if(gameInstance) gameInstance.applyGraphicsSettings();
+    });
   });
   document.getElementById('dynResToggle').addEventListener('change', (e)=>{
     SETTINGS.dynamicResolution = e.target.checked;
