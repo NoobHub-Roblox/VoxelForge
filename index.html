@@ -7622,22 +7622,29 @@ class Game{
       const distToPlayer = m.pos.distanceTo(this.pos);
       if(distToPlayer > despawnDist){ this.scene.remove(m.group); this.animals.splice(i,1); continue; }
 
+      const dt = Math.min(delta, 0.05);
       m.bobT += delta*6;
       if(m.hitFlashT>0){ m.hitFlashT -= delta; this.setMobFlash(m, m.hitFlashT>0); }
+      if(!this._mobReady(m.pos.x, m.pos.y, m.pos.z)){ m.group.position.copy(m.pos); continue; } // chunk not loaded: wait
+      if(m.pos.y < -80){ this.scene.remove(m.group); this.animals.splice(i,1); continue; }
 
+      let face = m.yaw, speed = 0;
       if(m.fleeT>0){
-        m.fleeT -= delta;
-        const awayYaw = Math.atan2(this.pos.x-m.pos.x, this.pos.z-m.pos.z); // forward = away from player
-        this.stepMobPos(m, delta, 3.2, awayYaw);
+        m.fleeT -= dt;
+        face = Math.atan2(this.pos.x-m.pos.x, this.pos.z-m.pos.z); // forward = away from player
+        speed = 3.2;
       } else {
-        m.wanderT -= delta;
+        m.wanderT -= dt;
         if(m.wanderT<=0){
           m.wanderYaw = Math.random()*Math.PI*2;
           m.wanderT = 2 + Math.random()*3;
           m.wandering = Math.random()<0.6; // sometimes just stand and graze
         }
-        if(m.wandering) this.stepMobPos(m, delta, 1.1, m.wanderYaw);
+        if(m.wandering){ face = m.wanderYaw; speed = 1.1; }
       }
+      const size = m.kind==='cow' ? [0.4, 1.3] : [0.3, 0.9];
+      this._moveAnimal(m, -Math.sin(face), -Math.cos(face), speed, dt, size[0], size[1]);
+      if(speed > 0){ let dyaw = face - m.yaw; dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw)); m.yaw += dyaw*Math.min(1, dt*10); }
       m.group.position.copy(m.pos);
       m.group.rotation.y = m.yaw; // every mob model faces -Z, which is the direction it walks
       const legBob = Math.sin(m.bobT)*0.35;
@@ -7657,29 +7664,56 @@ class Game{
     const ch = this.world.getChunk(cx,cy,cz);
     return !!(ch && ch.generated);
   }
-  // Is the zombie's body (0.6 wide, 1.8 tall) overlapping solid blocks when standing at (x,y,z)?
-  _mobBodyBlocked(x,y,z){
-    const r = 0.3;
-    for(const yy of [y+0.05, y+0.95, y+1.75])
+  // Is a mob's body (default: zombie, 0.6 wide x 1.8 tall) overlapping solid blocks when standing at (x,y,z)?
+  _mobBodyBlocked(x,y,z,r=0.3,h=1.8){
+    for(const yy of [y+0.05, y+h*0.52, y+h-0.05])
       for(const ox of [-r,r]) for(const oz of [-r,r])
         if(this.isSolidAt(x+ox, yy, z+oz)) return true;
     return false;
   }
-  _mobFootSolid(x,y,z){
-    const r = 0.3;
+  _mobFootSolid(x,y,z,r=0.3){
     return this.isSolidAt(x-r,y,z-r) || this.isSolidAt(x+r,y,z-r) || this.isSolidAt(x-r,y,z+r) || this.isSolidAt(x+r,y,z+r);
   }
   // Pick a walkable direction close to (wx,wz): straight ahead, a 1-block step-up, else steer around.
-  _mobSteer(m, wx, wz){
-    const base = Math.atan2(wz, wx), probe = 0.4;
+  _mobSteer(m, wx, wz, r=0.3, h=1.8){
+    const base = Math.atan2(wz, wx), probe = r + 0.1;
     for(const off of [0, 0.8, -0.8, 1.6, -1.6]){
       const a = base + off, dx = Math.cos(a), dz = Math.sin(a);
       const nx = m.pos.x + dx*probe, nz = m.pos.z + dz*probe;
-      if(!this._mobBodyBlocked(nx, m.pos.y, nz)) return { dx, dz, jump:false };
-      if(off===0 && m.onGround && !this._mobBodyBlocked(nx, m.pos.y+1.05, nz) && !this._mobBodyBlocked(m.pos.x, m.pos.y+1.05, m.pos.z))
+      if(!this._mobBodyBlocked(nx, m.pos.y, nz, r, h)) return { dx, dz, jump:false };
+      if(off===0 && m.onGround && !this._mobBodyBlocked(nx, m.pos.y+1.05, nz, r, h) && !this._mobBodyBlocked(m.pos.x, m.pos.y+1.05, m.pos.z, r, h))
         return { dx, dz, jump:true };
     }
     return null;
+  }
+  // Shared walk + gravity step for passive animals: real block collision, so they stand on whatever is
+  // actually there (hills, water edges, things you built) instead of following the terrain-height formula.
+  _moveAnimal(m, wishX, wishZ, speed, dt, r, h){
+    if(m.vy === undefined){ m.vy = 0; m.onGround = false; }
+    const feetId = this.world.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y+0.2), Math.floor(m.pos.z));
+    const inWater = !!(feetId && BLOCKS[feetId] && BLOCKS[feetId].liquid);
+    if(inWater) speed *= 0.5;
+    let walkX = 0, walkZ = 0;
+    if(speed > 0){
+      const st = this._mobSteer(m, wishX, wishZ, r, h);
+      if(st){ walkX = st.dx*speed; walkZ = st.dz*speed; if(st.jump && m.onGround) m.vy = 8; }
+      else m.wanderT = 0; // boxed in: pick a new direction next tick
+    }
+    const nx = m.pos.x + walkX*dt;
+    if(!this._mobBodyBlocked(nx, m.pos.y, m.pos.z, r, h)) m.pos.x = nx;
+    const nz = m.pos.z + walkZ*dt;
+    if(!this._mobBodyBlocked(m.pos.x, m.pos.y, nz, r, h)) m.pos.z = nz;
+    if(inWater) m.vy = Math.min(2.2, m.vy + 30*dt);
+    else m.vy = Math.max(-30, m.vy - 22*dt);
+    let ny = m.pos.y + m.vy*dt;
+    if(m.vy <= 0){
+      if(this._mobFootSolid(m.pos.x, ny, m.pos.z, r)){ ny = Math.floor(ny) + 1; m.vy = 0; m.onGround = true; }
+      else m.onGround = false;
+    } else {
+      m.onGround = false;
+      if(this._mobBodyBlocked(m.pos.x, ny, m.pos.z, r, h)){ ny = m.pos.y; m.vy = 0; }
+    }
+    m.pos.y = ny;
   }
   updateHostiles(delta){
     const despawnDist = (RENDER_DISTANCE+2)*CHUNK_SIZE;
