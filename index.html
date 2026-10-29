@@ -7472,7 +7472,7 @@ class Game{
       built.group.rotation.set(0,0,0);
       Object.assign(parts, built.parts);
       group.add(built.group);
-      parts.armL.rotation.x = parts.armR.rotation.x = -1.45; // arms out in front
+      parts.armL.rotation.x = parts.armR.rotation.x = 1.45; // arms out in front (model faces -z, so +x swings forward)
     }
     return { group, parts };
   }
@@ -7533,8 +7533,11 @@ class Game{
       kind:'zombie', group, parts, persist: !!persist, // egg-spawned zombies don't burn off in daylight
       pos: new THREE.Vector3(x,y,z),
       yaw: Math.random()*Math.PI*2,
-      wanderT: 0, attackCD: 0, health: 8, maxHealth: 8, hitFlashT: 0,
-      bobT: Math.random()*10,
+      health: 8, maxHealth: 8, hitFlashT: 0, bobT: Math.random()*10,
+      // AI / physics state (see updateHostiles)
+      vy: 0, onGround: false, kx: 0, kz: 0,           // vertical velocity + knockback velocity
+      aggro: false, wandering: false, wanderT: 0, wanderYaw: 0,
+      attackCD: 0.6, windup: null, burnT: 0, moved: 0,
     });
   }
 
@@ -7592,40 +7595,143 @@ class Game{
       if(m.parts.legs) m.parts.legs.forEach((leg,idx)=>{ leg.rotation.x = (idx%2===0?1:-1)*legBob*(m.wandering||m.fleeT>0?1:0.15); });
     }
 
-    // ---- hostiles: wander until the player is close/visible-ish, then chase and attack ----
+    this.updateHostiles(delta);
+  }
+
+  /* ---------------- Zombie AI + physics ----------------
+     Real collision (not just terrain height), so zombies work in caves, on stairs and over anything
+     you build: gravity, 1-block step-up jumps, steering around walls, water floating, knockback.
+     States: idle/wander -> aggro (player within 14 blocks, or the zombie was hit) -> windup -> strike.
+     Convention: a mob's forward is (-sin yaw, -cos yaw) and the model's face points the same way. */
+  _mobReady(x,y,z){
+    const {cx,cy,cz} = this.world.worldToChunk(Math.floor(x),Math.floor(y),Math.floor(z));
+    const ch = this.world.getChunk(cx,cy,cz);
+    return !!(ch && ch.generated);
+  }
+  // Is the zombie's body (0.6 wide, 1.8 tall) overlapping solid blocks when standing at (x,y,z)?
+  _mobBodyBlocked(x,y,z){
+    const r = 0.3;
+    for(const yy of [y+0.05, y+0.95, y+1.75])
+      for(const ox of [-r,r]) for(const oz of [-r,r])
+        if(this.isSolidAt(x+ox, yy, z+oz)) return true;
+    return false;
+  }
+  _mobFootSolid(x,y,z){
+    const r = 0.3;
+    return this.isSolidAt(x-r,y,z-r) || this.isSolidAt(x+r,y,z-r) || this.isSolidAt(x-r,y,z+r) || this.isSolidAt(x+r,y,z+r);
+  }
+  // Pick a walkable direction close to (wx,wz): straight ahead, a 1-block step-up, else steer around.
+  _mobSteer(m, wx, wz){
+    const base = Math.atan2(wz, wx), probe = 0.4;
+    for(const off of [0, 0.8, -0.8, 1.6, -1.6]){
+      const a = base + off, dx = Math.cos(a), dz = Math.sin(a);
+      const nx = m.pos.x + dx*probe, nz = m.pos.z + dz*probe;
+      if(!this._mobBodyBlocked(nx, m.pos.y, nz)) return { dx, dz, jump:false };
+      if(off===0 && m.onGround && !this._mobBodyBlocked(nx, m.pos.y+1.05, nz) && !this._mobBodyBlocked(m.pos.x, m.pos.y+1.05, m.pos.z))
+        return { dx, dz, jump:true };
+    }
+    return null;
+  }
+  updateHostiles(delta){
+    const despawnDist = (RENDER_DISTANCE+2)*CHUNK_SIZE;
+    const dt = Math.min(delta, 0.05);
+    const ZOMBIE_DAMAGE = 2, WALK = 1.0, CHASE = 2.9;
     for(let i=this.hostiles.length-1; i>=0; i--){
       const m = this.hostiles[i];
-      const distToPlayer = m.pos.distanceTo(this.pos);
-      // daylight burns them off (classic rule) as well as simple despawn distance
-      if(distToPlayer > despawnDist || (!m.persist && !this.isNight && this.lightLevelAt(Math.floor(m.pos.x),Math.floor(m.pos.y),Math.floor(m.pos.z))>8)){
-        this.scene.remove(m.group); this.hostiles.splice(i,1); continue;
-      }
-      m.bobT += delta*7;
+      const dx = this.pos.x-m.pos.x, dz = this.pos.z-m.pos.z, dy = this.pos.y-m.pos.y;
+      const hdist = Math.hypot(dx,dz);
+      if(Math.hypot(hdist,dy) > despawnDist || m.pos.y < -80){ this.scene.remove(m.group); this.hostiles.splice(i,1); continue; }
       if(m.hitFlashT>0){ m.hitFlashT -= delta; this.setMobFlash(m, m.hitFlashT>0); }
-      if(m.attackCD>0) m.attackCD -= delta;
+      if(!this._mobReady(m.pos.x,m.pos.y,m.pos.z)){ m.group.position.copy(m.pos); continue; } // chunk not loaded: wait
 
-      const CHASE_RANGE = 9;
-      if(distToPlayer < CHASE_RANGE){
-        const towardYaw = Math.atan2(this.pos.x-m.pos.x, this.pos.z-m.pos.z) + Math.PI; // forward (-sin,-cos) points at the player
-        if(distToPlayer > 1.1){
-          this.stepMobPos(m, delta, 2.6, towardYaw);
+      // daylight: unprotected zombies catch fire and die (egg-spawned ones are immune)
+      if(!m.persist && !this.isNight && this.lightLevelAt(Math.floor(m.pos.x),Math.floor(m.pos.y),Math.floor(m.pos.z))>8){
+        m.burnT += dt;
+        if(m.burnT >= 1){
+          m.burnT -= 1; m.health -= 1; m.hitFlashT = 0.15; this.setMobFlash(m, true);
+          if(m.health <= 0){ this.scene.remove(m.group); this.hostiles.splice(i,1); continue; }
+        }
+      } else m.burnT = 0;
+
+      // ---- awareness ----
+      if(this.dead) m.aggro = false;
+      else if(m.aggro){ if(hdist > 28) m.aggro = false; }
+      else if(hdist < 14 && Math.abs(dy) < 8) m.aggro = true;
+
+      // ---- intent: where do I want to walk, how fast, and which way do I face ----
+      let wishX = 0, wishZ = 0, speed = 0, faceYaw = m.yaw;
+      if(m.aggro){
+        faceYaw = Math.atan2(-dx, -dz);
+        if(hdist > 0.9){ wishX = dx/hdist; wishZ = dz/hdist; speed = CHASE; }
+        // strike: wind up for a moment, then hit if the player is still in reach
+        if(m.attackCD > 0) m.attackCD -= dt;
+        if(m.windup === null){
+          if(m.attackCD <= 0 && hdist < 1.35 && Math.abs(dy) < 1.5) m.windup = 0.35;
         } else {
-          m.yaw = towardYaw;
-          if(m.attackCD<=0){
-            m.attackCD = 1.0;
-            this.damage(1, 'Slain by a zombie');
+          m.windup -= dt;
+          if(hdist > 2.2) m.windup = null;
+          else if(m.windup <= 0){
+            m.windup = null; m.attackCD = 1.0;
+            if(hdist < 1.7 && Math.abs(dy) < 1.7) this.damage(ZOMBIE_DAMAGE, 'Slain by a zombie');
           }
         }
       } else {
-        m.wanderT -= delta;
-        if(m.wanderT<=0){ m.wanderYaw = Math.random()*Math.PI*2; m.wanderT = 2+Math.random()*3; }
-        this.stepMobPos(m, delta, 1.0, m.wanderYaw);
+        m.windup = null;
+        m.wanderT -= dt;
+        if(m.wanderT <= 0){ m.wandering = Math.random() < 0.55; m.wanderYaw = Math.random()*Math.PI*2; m.wanderT = 2 + Math.random()*3; }
+        if(m.wandering){ wishX = -Math.sin(m.wanderYaw); wishZ = -Math.cos(m.wanderYaw); speed = WALK; faceYaw = m.wanderYaw; }
       }
+
+      // ---- liquids: float, and wade slowly ----
+      const feetId = this.world.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y+0.2), Math.floor(m.pos.z));
+      const inWater = !!(feetId && BLOCKS[feetId] && BLOCKS[feetId].liquid);
+      if(inWater) speed *= 0.5;
+
+      // ---- horizontal move (steer / step-up), plus knockback and light separation from other zombies ----
+      let walkX = 0, walkZ = 0;
+      if(speed > 0){
+        const st = this._mobSteer(m, wishX, wishZ);
+        if(st){ walkX = st.dx*speed; walkZ = st.dz*speed; if(st.jump && m.onGround) m.vy = 8; }
+        else if(m.aggro === false) m.wanderT = 0; // boxed in: pick a new direction
+      }
+      for(const o of this.hostiles){
+        if(o===m) continue;
+        const ox = m.pos.x-o.pos.x, oz = m.pos.z-o.pos.z, od = Math.hypot(ox,oz);
+        if(od < 0.7 && od > 1e-4 && Math.abs(m.pos.y-o.pos.y) < 1.5){ walkX += ox/od*1.2; walkZ += oz/od*1.2; }
+      }
+      const vx = walkX + m.kx, vz = walkZ + m.kz;
+      const ox0 = m.pos.x, oz0 = m.pos.z;
+      let nx = m.pos.x + vx*dt;
+      if(!this._mobBodyBlocked(nx, m.pos.y, m.pos.z)) m.pos.x = nx; else m.kx = 0;
+      let nz = m.pos.z + vz*dt;
+      if(!this._mobBodyBlocked(m.pos.x, m.pos.y, nz)) m.pos.z = nz; else m.kz = 0;
+      const damp = Math.exp(-6*dt); m.kx *= damp; m.kz *= damp;
+
+      // ---- vertical: gravity, landing, bonking your head ----
+      if(inWater) m.vy = Math.min(2.2, m.vy + 30*dt);
+      else m.vy = Math.max(-30, m.vy - 22*dt);
+      let ny = m.pos.y + m.vy*dt;
+      if(m.vy <= 0){
+        if(this._mobFootSolid(m.pos.x, ny, m.pos.z)){ ny = Math.floor(ny) + 1; m.vy = 0; m.onGround = true; }
+        else m.onGround = false;
+      } else {
+        m.onGround = false;
+        if(this._mobBodyBlocked(m.pos.x, ny, m.pos.z)){ ny = m.pos.y; m.vy = 0; }
+      }
+      m.pos.y = ny;
+
+      // ---- turn smoothly, then animate ----
+      let dyaw = faceYaw - m.yaw; dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+      m.yaw += dyaw*Math.min(1, dt*10);
+      const moved = Math.hypot(m.pos.x-ox0, m.pos.z-oz0)/Math.max(dt,1e-4);
+      m.moved += (moved - m.moved)*Math.min(1, dt*8);
+      m.bobT += dt*(2 + m.moved*2.6);
+      const swing = Math.sin(m.bobT)*0.75*Math.min(1, m.moved/2.2);
       m.group.position.copy(m.pos);
       m.group.rotation.y = m.yaw;
-      const swing = Math.sin(m.bobT)*0.4;
       m.parts.legL.rotation.x = swing; m.parts.legR.rotation.x = -swing;
-      m.parts.armL.rotation.x = -1.45 + swing*0.12; m.parts.armR.rotation.x = -1.45 - swing*0.12; // zombie reach
+      const reach = m.windup !== null ? 1.95 : 1.45 + Math.sin(m.bobT*0.5)*0.07;   // lift the arms when about to strike
+      m.parts.armL.rotation.x = reach; m.parts.armR.rotation.x = reach;
     }
   }
 
@@ -7649,14 +7755,17 @@ class Game{
     const {origin, dir} = this.getLookRay();
     let best = null, bestT = maxDist;
     const testList = (list, kind)=>{
+      const heights = kind==='hostile' ? [0.35, 0.9, 1.45] : [0.6];   // zombies: test feet / torso / head
+      const radius = kind==='hostile' ? 0.45 : 0.55;
       for(const m of list){
-        const center = m.pos.clone(); center.y += (kind==='hostile'?1.0:0.6);
-        const toMob = center.clone().sub(origin);
-        const t = toMob.dot(dir);
-        if(t<0 || t>bestT) continue;
-        const closest = origin.clone().addScaledVector(dir, t);
-        const perpDist = closest.distanceTo(center);
-        if(perpDist < 0.55){ bestT = t; best = { mob:m, kind, list }; }
+        for(const hy of heights){
+          const center = m.pos.clone(); center.y += hy;
+          const toMob = center.clone().sub(origin);
+          const t = toMob.dot(dir);
+          if(t<0 || t>bestT) continue;
+          const closest = origin.clone().addScaledVector(dir, t);
+          if(closest.distanceTo(center) < radius){ bestT = t; best = { mob:m, kind, list }; }
+        }
       }
     };
     testList(this.animals, 'animal');
@@ -7676,6 +7785,12 @@ class Game{
     this.damageHeldTool();
     if(kind==='animal'){
       mob.fleeT = 1.6; // spooked animals run for a bit even if they survive
+    }
+    if(kind==='hostile'){
+      mob.aggro = true; mob.windup = null;
+      const kx = mob.pos.x-this.pos.x, kz = mob.pos.z-this.pos.z, kd = Math.hypot(kx,kz) || 1;
+      mob.kx = kx/kd*6; mob.kz = kz/kd*6;        // shoved away from you
+      if(mob.onGround) mob.vy = 4.5;             // and popped up a little
     }
     if(mob.health<=0){
       this.scene.remove(mob.group);
