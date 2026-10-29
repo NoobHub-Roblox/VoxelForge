@@ -5429,7 +5429,7 @@ class Game{
       best = {x:tx, y, z:tz};
     }
     this.pos.set(best.x+0.5, best.y+0.05, best.z+0.5);
-    this.vel.set(0,0,0);
+    this.vel.set(0,0,0); this._fallPeakY = null;
     this.onGround = false;
     this._stream = null; // force the chunk-streaming cache to rebuild around the new spot
     return best;
@@ -7904,14 +7904,32 @@ class Game{
                      this.isSolidAt(this.pos.x-0.01,this.pos.y-0.05,this.pos.z+0.01) ||
                      this.isSolidAt(this.pos.x+0.01,this.pos.y-0.05,this.pos.z-0.01);
 
-    // Fall damage: only in survival, only once per landing (wasAirborne guard
-    // stops repeated hits while already resting on ground), scaled by how
-    // fast the player was falling right before the y-axis collision zeroed
-    // vel.y. Minecraft-like: a few blocks are free, it climbs after that.
-    if(GAME_MODE==='survival' && !this.flying && !this.inWater && wasAirborne && this.onGround && velYBeforeCollision < -12){
-      const fallSpeed = -velYBeforeCollision;
-      const dmg = Math.floor((fallSpeed-12) * 0.6);
-      if(dmg>0) this.damage(dmg, 'Hit the ground too hard');
+    // Fall damage, based on how many blocks you actually dropped (highest point of the fall minus where you
+    // land) instead of landing speed, so it's consistent at any frame rate and can't be skipped by a
+    // lucky frame. Falls under FALL_SAFE_BLOCKS are free, every block past that costs 1 half-heart,
+    // and a fall of FALL_BIG_THRESHOLD blocks or more multiplies the total by FALL_BIG_MULT.
+    const FALL_SAFE_BLOCKS = 3, FALL_BIG_THRESHOLD = 7, FALL_BIG_MULT = 2;
+    const canFall = GAME_MODE==='survival' && !this.flying && !this.inWater;
+    // a sudden vertical jump in one frame is a teleport / respawn, not a fall
+    if(this._fallLastY != null && Math.abs(this.pos.y - this._fallLastY) > 6) this._fallPeakY = null;
+    this._fallLastY = this.pos.y;
+    if(!canFall){
+      this._fallPeakY = null;
+    } else if(!this.onGround){
+      if(this._fallPeakY == null || this.pos.y > this._fallPeakY) this._fallPeakY = this.pos.y;
+    } else {
+      if(wasAirborne && this._fallPeakY != null){
+        const dist = this._fallPeakY - this.pos.y;
+        if(dist > FALL_SAFE_BLOCKS){
+          let dmg = Math.floor(dist - FALL_SAFE_BLOCKS);
+          if(dist >= FALL_BIG_THRESHOLD) dmg = Math.ceil(dmg * FALL_BIG_MULT);
+          if(dmg > 0){
+            this.invulnT = 0;   // a mob hit a moment ago must not swallow the fall damage
+            this.damage(dmg, 'Hit the ground too hard');
+          }
+        }
+      }
+      this._fallPeakY = null;
     }
   }
 
@@ -9464,7 +9482,7 @@ class Game{
                       : c.peak + (c.to.y-c.peak)*inOutCubic((u-0.4)/0.6); // ...and down onto the spawn
     if(!c.swapped && u >= 0.4){                                         // high up: switch the loaded area over to the spawn
       c.swapped = true;
-      this.pos.copy(c.target); this.vel.set(0,0,0);
+      this.pos.copy(c.target); this.vel.set(0,0,0); this._fallPeakY = null;
     }
     if(!this._contextLost) this.updateChunkStreaming();
     const dip = Math.sin(Math.PI*u);
@@ -9516,7 +9534,7 @@ class Game{
     this.health = this.maxHealth;
     this.resetHunger();
     this.dead = false;
-    this.vel.set(0,0,0);
+    this.vel.set(0,0,0); this._fallPeakY = null;
     this.pos.copy(t);
     this.updateHealthUI();
   }
@@ -9530,7 +9548,7 @@ class Game{
     const origin = which==='A' ? ARCH_A_ORIGIN : ARCH_B_ORIGIN;
     const floorY = which==='A' ? 1 : ARCH_B_ORIGIN.y;
     this._archCooldown = 1.0; // don't let the arrival itself immediately re-trigger a crossing
-    this.vel.set(0,0,0);
+    this.vel.set(0,0,0); this._fallPeakY = null;
     // land a couple of blocks back from the doorway (arch faces +x, so back
     // off along -x), centered on the doorway's z
     this.pos.set(origin.x - 3, floorY + 1, origin.z);
@@ -10452,6 +10470,35 @@ function hungerIconDataUrl(state){
 /* -------------------------------------------------------------------------
    7. BOOT SEQUENCE / MENU
 ------------------------------------------------------------------------- */
+/* Block tiles for the 2D menu / loading scenes: uses YOUR texture PNGs (assets/blocks, or anything applied
+   in the Custom Textures panel) and shows the procedural painter only until the image has loaded. */
+const SceneTiles = (function(){
+  const cache = {};   // "blockId_face" -> canvas / image currently used for drawing
+  const loading = {};
+  function urlFor(blockId, face){
+    const key = faceSlotKey(blockId, face);
+    if(BLOCK_SIDE_TEXTURES[key]) return BLOCK_SIDE_TEXTURES[key];
+    const hc = HARDCODED_BLOCK_TEXTURES[blockId];
+    if(!hc) return null;
+    return hc[face] || hc.all || hc.side || null;
+  }
+  function get(blockId, face, fallbackPaint){
+    const ck = blockId + '_' + face;
+    if(!cache[ck]){
+      const c = makeCanvas(); const cx = c.getContext('2d');
+      (TexturePainters[fallbackPaint] || TexturePainters.stone)(cx, hashStr(fallbackPaint || 'stone'));
+      cache[ck] = c;
+      const url = urlFor(blockId, face);
+      if(url && !loading[ck]){
+        loading[ck] = true;
+        loadImageElement(url).then(img=>{ cache[ck] = img; }).catch(()=>{ /* keep procedural fallback */ });
+      }
+    }
+    return cache[ck];
+  }
+  return { get };
+})();
+
 /* Loading scene: a pixel side-view strip of terrain, built from the game's own block textures, that
    grows left to right as the world loads — each block drops into place. Hard pixel edges, no glow, same
    look as the menu. Stops drawing as soon as the loading screen is hidden. */
@@ -10460,7 +10507,14 @@ const LoadScene = (function(){
   let cells = [], shown = 0, target = 0, running = false, raf = 0, last = 0, t = 0;
   let cv = null, ctx = null, pctEl = null;
   const tiles = {};
+  // painter name -> [blockId, face] so the strip is drawn with your block textures
+  const TILE_SRC = {
+    grass_top:['1','top'], grass_side:['1','side'], dirt:['2','all'], stone:['3','all'],
+    coal_ore:['13','all'], wood_side:['6','side'], leaves:['7','all'],
+  };
   function tile(name){
+    const src = TILE_SRC[name];
+    if(src) return SceneTiles.get(+src[0], src[1], name);
     if(tiles[name]) return tiles[name];
     const c = makeCanvas(); const cx = c.getContext('2d');
     (TexturePainters[name] || TexturePainters.stone)(cx, hashStr(name));
@@ -10589,8 +10643,13 @@ function drawMenuBackground(){
   const ctx = canvas.getContext('2d');
   function resize(){ canvas.width = innerWidth; canvas.height = innerHeight; }
   resize(); window.addEventListener('resize', resize);
-  // simple parallax "blocks falling" ambience using tiny textured squares
-  const paints = ['grass_top','dirt','stone','wood_side','leaves','sand'];
+  // parallax "blocks falling" ambience, drawn with your block textures
+  // [blockId, face, fallback painter]
+  const paints = [
+    [1,'side','grass_side'], [1,'top','grass_top'], [2,'all','dirt'], [3,'all','stone'], [4,'all','cobblestone'],
+    [5,'all','sand'], [6,'side','wood_side'], [7,'all','leaves'], [8,'all','planks'], [13,'all','coal_ore'],
+    [14,'all','iron_ore'], [16,'all','diamond_ore'], [26,'all','gravel'],
+  ];
   const tiles = [];
   for(let i=0;i<40;i++){
     tiles.push({
@@ -10600,13 +10659,7 @@ function drawMenuBackground(){
       rot: Math.random()*0.4-0.2,
     });
   }
-  const cachedTiles = {};
-  function getTile(paint){
-    if(cachedTiles[paint]) return cachedTiles[paint];
-    const c = makeCanvas(); const cx = c.getContext('2d');
-    (TexturePainters[paint]||TexturePainters.stone)(cx, hashStr(paint));
-    cachedTiles[paint]=c; return c;
-  }
+  function getTile(p){ return SceneTiles.get(p[0], p[1], p[2]); }
   let last = performance.now();
   function frame(now){
     const dt = Math.min(0.05,(now-last)/1000); last=now;
