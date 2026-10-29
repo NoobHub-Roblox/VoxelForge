@@ -10085,25 +10085,53 @@ function shapeIconDataUrl(blockId){
   const N = 64, c = makeCanvas(N), ctx = c.getContext('2d');
   ctx.imageSmoothingEnabled = false;
   const atlas = BlockAtlas.texture.image;
-  const P = (x,y,z)=> [32 + (x-z)*22, 34 + (x+z)*11 - y*24];   // isometric projection of a unit cube
-  const tile = (face)=>{
-    const r = BlockAtlas.rect(faceMaterialKey(blockId, face));
+  const tile = (id, face)=>{
+    const r = BlockAtlas.rect(faceMaterialKey(id, face));
     return [r[0]*ATLAS_SIZE, (1-r[3])*ATLAS_SIZE, ATLAS_TILE, ATLAS_TILE];
   };
+
+  // Torches are a thin stick: a flat picture of the art reads better than a cube.
+  if(blockId === 41){
+    const t = tile(blockId, 'side');
+    try{ ctx.drawImage(atlas, t[0], t[1], t[2], t[3], 8, 8, 48, 48); }catch(e){}
+    const url = c.toDataURL();
+    shapeIconCache[blockId] = { ver, url };
+    return url;
+  }
+
+  // parts: the block's own boxes (or a full cube for ordinary blocks). A door item is the LOWER half,
+  // so its upper half is drawn on top of it to show the whole door.
+  const parts = [];
+  const cube = !b.boxes;
+  const boxes = b.boxes || [[0,0,0,1,1,1]];
+  boxes.forEach(q=> parts.push({ id:blockId, q, dy:0 }));
+  let tall = false;
+  if(b.doorHalf === 'lower'){
+    const upId = SHAPE.door('upper', b.facing||0, false);
+    if(upId){
+      tall = true;
+      boxes.forEach(q=> parts.push({ id:upId, q, dy:1 }));
+    }
+  }
+  const k = tall ? 0.85 : 1, cy = tall ? 43 : 34;
+  const P = (x,y,z)=> [32 + (x-z)*22*k, cy + (x+z)*11*k - y*24*k];   // isometric projection of a unit cube
   // one textured parallelogram: p0 = origin corner, pu/pv = where the texture's u/v axes run to
-  const quad = (face, p0, pu, pv, shade)=>{
-    const t = tile(face), W = t[2], H = t[3];
+  const quad = (id, face, p0, pu, pv, shade)=>{
+    const t = tile(id, face), W = t[2], H = t[3];
     ctx.save();
     ctx.setTransform((pu[0]-p0[0])/W, (pu[1]-p0[1])/W, (pv[0]-p0[0])/H, (pv[1]-p0[1])/H, p0[0], p0[1]);
     try{ ctx.drawImage(atlas, t[0], t[1], W, H, 0, 0, W, H); }catch(e){}
-    if(shade > 0){ ctx.fillStyle = 'rgba(0,0,0,'+shade+')'; ctx.fillRect(0, 0, W, H); }
+    if(shade > 0){ ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = 'rgba(0,0,0,'+shade+')'; ctx.fillRect(0, 0, W, H); }
     ctx.restore();
   };
-  const boxes = b.boxes.slice().sort((a,q)=> (a[1]-q[1]) || ((a[0]+a[2])-(q[0]+q[2])));
-  for(const [x0,y0,z0,x1,y1,z1] of boxes){
-    quad('side', P(x0,y1,z1), P(x1,y1,z1), P(x0,y0,z1), 0.22);   // front (+z)
-    quad('side', P(x1,y1,z0), P(x1,y1,z1), P(x1,y0,z0), 0.38);   // right (+x)
-    quad('top',  P(x0,y1,z0), P(x1,y1,z0), P(x0,y1,z1), 0);      // top
+  // the picture shows the FRONT of the block (furnace / pumpkin face) when it has one, otherwise its side
+  const frontFace = (b.tex && b.tex.front) ? 'front' : 'side';
+  parts.sort((a,q)=> ((a.q[1]+a.dy)-(q.q[1]+q.dy)) || ((a.q[0]+a.q[2])-(q.q[0]+q.q[2])));
+  for(const {id, q, dy} of parts){
+    const [x0,y0,z0,x1,y1,z1] = [q[0], q[1]+dy, q[2], q[3], q[4]+dy, q[5]];
+    quad(id, frontFace, P(x0,y1,z1), P(x1,y1,z1), P(x0,y0,z1), 0.12);   // front (+z)
+    quad(id, 'side',    P(x1,y1,z0), P(x1,y1,z1), P(x1,y0,z0), 0.32);   // right (+x)
+    quad(id, 'top',     P(x0,y1,z0), P(x1,y1,z0), P(x0,y1,z1), 0);      // top
   }
   const url = c.toDataURL();
   shapeIconCache[blockId] = { ver, url };
@@ -10138,7 +10166,11 @@ function buildShapeGeometry(blockId){
 }
 function iconDataUrl(blockId){
   if(ITEMS[blockId]) return itemIconDataUrl(blockId); // hand items use flat icons, not cube faces
-  if(BLOCKS[blockId] && BLOCKS[blockId].boxes) return shapeIconDataUrl(blockId); // stairs, doors, beds, carpets: draw the real model
+  // Every block (ordinary cubes included) is drawn from the texture atlas as its real model: front face
+  // (or side) + side + top, and shaped blocks (stairs, doors, beds...) with their actual geometry.
+  if(BLOCKS[blockId]){
+    try{ return shapeIconDataUrl(blockId); }catch(e){ /* fall through to the legacy cube icon below */ }
+  }
   if(iconCache[blockId]) return iconCache[blockId];
 
   const b = BLOCKS[blockId];
