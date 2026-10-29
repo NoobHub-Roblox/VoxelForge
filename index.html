@@ -10416,8 +10416,27 @@ const HUNGER_ART = [
 "..KKK...........",
 "................",
 ];
+// Hunger icons come from assets/hunger/ (like the hearts); the built-in drumstick art is the fallback.
+const HUNGER_ICON_URLS = {
+  full:  'assets/hunger/hunger_full.png',
+  half:  'assets/hunger/hunger_half.png',
+  empty: 'assets/hunger/hunger_empty.png',
+};
+const HUNGER_IMG_OK = {};
+(function preloadHungerImages(){
+  for(const st in HUNGER_ICON_URLS){
+    const im = new Image();
+    im.onload = ()=>{
+      HUNGER_IMG_OK[st] = true;
+      if(typeof gameInstance !== 'undefined' && gameInstance && gameInstance.updateHungerUI) gameInstance.updateHungerUI();
+    };
+    im.onerror = ()=>{ HUNGER_IMG_OK[st] = false; };
+    im.src = HUNGER_ICON_URLS[st];
+  }
+})();
 const hungerIconCache = {};
 function hungerIconDataUrl(state){
+  if(HUNGER_IMG_OK[state]) return HUNGER_ICON_URLS[state];
   if(hungerIconCache[state]) return hungerIconCache[state];
   const c = makeCanvas(16), ctx = c.getContext('2d');
   const full  = { K:'#000000', R:'#b5532a', H:'#e08a52', B:'#c9b79a', W:'#f4ead6' };
