@@ -9443,8 +9443,23 @@ class Game{
     this.camera.rotation.x = this.pitch;
     this.camera.rotation.z = 0.55*e;
   }
+  // Feet height that rests on the real ground at (x,z): climbs out of anything built over the spot,
+  // then drops down to the first solid (or liquid) block. Falls back to the terrain height when that
+  // chunk isn't loaded, so the player is never dropped from the air.
+  _groundYAt(x, y, z){
+    const w = this.world, bx = Math.floor(x), bz = Math.floor(z);
+    const {cx,cy,cz} = w.worldToChunk(bx, Math.floor(y), bz);
+    const ch = w.getChunk(cx,cy,cz);
+    if(!ch || !ch.generated) return w.heightAt(bx,bz) + 1.05;
+    const blocked = (yy)=>{ const id = w.getBlock(bx,yy,bz); return id!==0 && BLOCKS[id] && (BLOCKS[id].solid || BLOCKS[id].liquid); };
+    let fy = Math.floor(y);
+    for(let i=0; i<48 && (blocked(fy) || blocked(fy+1)); i++) fy++;   // buried: climb out
+    for(let i=0; i<160 && fy>0 && !blocked(fy-1); i++) fy--;            // floating: drop to the floor
+    return fy + 0.05;
+  }
   _respawnTarget(){
-    const t = this.respawnPos.clone(); t.y += 3;
+    const t = this.respawnPos.clone();
+    t.y = this._groundYAt(t.x, t.y, t.z);
     const bp = this.bedPos;
     if(bp){
       const {cx,cy,cz} = this.world.worldToChunk(bp.x,bp.y,bp.z);
