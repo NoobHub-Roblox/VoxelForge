@@ -4254,7 +4254,7 @@ function buildPlayerModel(palette, skinCanvas){
 // ---- Zombie skin: assets/mobs/zombie.png (standard 64x64 sheet), with the same
 // image embedded as a fallback so the zombie is never untextured. One shared
 // canvas feeds every zombie; it fills in as soon as the image loads.
-const ZOMBIE_SKIN_URLS = ['assets/mobs/zombie.png', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAEJElEQVR4AeyaPWsVQRSG5140BhMiQQuDKFhYWQQru4gophLRzj+gjYJlQEVEBPuIoJ2VXURsjNiYTrCxEPwogljEwiCGpPADrj4LbzgMs1/ZudldWOHxvGfOmdkz5856l7v2Xc6f848uDuDM7bMDH8aFH5Ofs3zt4dwGbKysO5iaOegsVM64UIxxaSx+k8ltAJsAfxOMWRRnTLoNNrcBbdhElRq7BuR1b+3zj9SU5WcfU2MEsuYSbwKVT0BaE9qweT6AQg1gM8AEYTeOBsXaZPv6vg7ZmWunBvqaw64sfXVCmxyd3O2EYrYZrAGh9RnTOnXZ5ASMTY07oAi+xgQbYxxCMeLKlSWPcSygQXEs46wJ6Drp2yJUnAqyvtXE8QFtYQw0hgb5WN9nrC76E0cmnQgVkRX7u/4nNCUZy5pHQl6cnO0guQXyLvT65qID5aFhx/hODbXWFmrAiTuzDrRLNOD73w6MtYnMBmRtLitmG1A0z87ZTh1sAEVDWiF+zPf9eXlxP3+Yvr92//HJBz3L2/lD7tOL6U3wLeQ+vfSkB77G/7Bwzi2/urzJ6pc5B4wRA7SYuf5uII5fXRz4Bfo+ORaeJSx+fp4fPAEjY3sdaDIa5Ndtd03sd6A6+FoF+WVssAFlFmh7brABvzdWHWhzaJBft/219s2B6tAjuPwytn/0wr2BJW+yzUVzP6bdw4dPP3QWf202ARrnWGstLGv7KFf25/crzpKXr3myyQng/gYNoqGorzzfLv//x9Af24pPY0Bz0VDUV17IJg0IBWKNxWpCrHr8dYbeAC5IEwDdNLalAU3btK2na4DtRlP16MiNpLQ9++4ntqyfTEr5q/EngE3zlGc3XcZP2ffmcOMboErZtDS2rM+cEK1pQKj4GGNdA+giz/mABjSgAQ1oQAO66eTV13+/MNcjCVsU5WNh6e50D97Mz/YAHYIYKIYG+b5lbZ7z+Z0BXt563gM0EAN+Y7A+GoixRhbJLcDGs5L8mM1nA348ls/akLYeMaEcfOkiNmlAkcRQjm1EKL7dY/7mfT9UT6UGhBZs21jXgLZ9YrHr7U5A7I62bb3uBLTtE4tdb3cCYne0bet1J6Btn1jsersTELujda9X9vrRTwDvC7PIK9B/t2ff/aPz5peNR28ABfBeEdCABnQReO8HyuUHUJAf0w6lATELHPZaQ2kAvxeCikeD/DzLK3NQXpX3/1ojzVZugH+/p11I434+vr3vlSfL73oWm4tW3lZt5QZwYe5vQAMa0IAGNKABPX7gWPL/few9jwbigAY0oAFdlSgNqFpEnfO7BtTZ/SZcu/YTwNtfGmHf/pbxya1C7Q2geDbPg45tRhmfNbZKIxrAZu0Gyvp2blndiAaULTpmfteAmN1s41pRTgDP+aAGoKGor7yt2Kpz/gEAAP//mCnyBQAAAAZJREFUAwCo9J+vPMCpJAAAAABJRU5ErkJggg=='];
+const ZOMBIE_SKIN_URLS = ['assets/mobs/zombie.png', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAD9klEQVR4AeyaPWsUURSG7y4agwmRoIVBFCysLIKVXUQUU4lo5x/QRsEyoCIign1E0M7KLiI2RmxMJ9hYCH4UQSxiYRBDUvgBq8/AuxwuM3tndmYzH0zgyXnPPefePffsneywk64L/Jx/dLEHZ26f7fkwLvyY/MDypYeDDdha23QwM3fQWaiccaEY49JY/CoTbACbAH8TjFkUZ0y6DjbYgDpsIk+NbQNC3dv4/CMxZfXZx8QYgUFziVeB3CcgqQl12DxvQKoGsBlggrAbR4NidbJdfV7H2blrp3r6mMOurXx1Qpscn97thGK2GawBceszpnXKstEJmJiZdEARfIwJNsY4xMWIK1eWPMaxgAbFsYyzJqDLpGuLUHEqyPpWE8cHtIUx0Bga5GN9n7Gy6E4dmXYirohBsb+bf+KmRGOD5pEQipOzHUSXQOiFXt9cdqA8NOyY3Kmh2tpUDThxZ96BdokGfP/TgbE6MbABgzY3KGYbkDbPztlOHdsAioakQvyY7/vzQnE/f5S+v3b38ckHHcvbxUPu04vZPvgWcp9eetIBX+N/WDrnVl9d7rP+ZcEBY8QALeauv+uJ41eXe36Bvk+OhXsJi58f8mNPwNjEXgeajAb5ZdtdU/sdqA4+VkF+FhvbgCwL1D03tgG/t9YdaHNokF+2/bXxzYHq0C24/Cy2e/TCvZ4lNNnmorkek67hw6cfOou/NpsAjXOstRaWtX2UK/vz+xVnCeVrnmx0Ari+QYNoSOsrz7er//8Y+mPD+DQGNBcNaX3lxdmoAXGBosaKakJR9fjrjLwBvCBNAHTV2JYGVG3Ttp62AbYbVdXjYzei0vbsux/ZrH40KeFX5U8Am+Yuz246i5+w7/5w5RugStm0NDarz5w4atOAuOKLGGsbQBe5zwc0oAENaEADGtBVJ1Rf9/3SQicPbxbnOyt3ZyPQIN+3xEDjaJDvW2Ivbz3vf1+BBr53ADSgAQ1oQAcbEEpoerz9G9D0dzi0v/YEhDrU9Hh7Apr+Dof2156AUIeaHm9PQNPf4dD+2hMQ6lDT4+0JaNo7nHU/hZ8AnhcOIlSg/2zPPvtHh+ZnjRfeAArguSKgAQ3oNPDcD5TLF6Agv0g7kgYUWeCo1xpJA/i+EFQ8GuSHLI/MQXl5nv9rjSSbuwH+9Z70Qhr38/Htda88WfvsH21z0cob1uZuAC/M9Q1oQAMa0IAGNKAnDxyL/t/HXvNoIA5oQAMa0HkppAF5iyhzftuAMrtfhdcu/QTw9JdG2Ke/WXxy81B6AyiezXOjY5uRxWeNYalEA9is3UBW387NqivRgKxFF5nfNqDIbtZxrUJOAPf5oAagIa2vvGFs3jn/AAAA//8JdYc7AAAABklEQVQDAKu9ka/PvZ0LAAAAAElFTkSuQmCC'];
 let ZOMBIE_SKIN_CANVAS = null;
 function getZombieSkinCanvas(){
   if(ZOMBIE_SKIN_CANVAS) return ZOMBIE_SKIN_CANVAS;
@@ -4275,6 +4275,31 @@ function getZombieSkinCanvas(){
   return c;
 }
 const ZOMBIE_SKIN_TEX = [];
+
+// ---- Cow skin: assets/mobs/cow.png, a 64x64 tile map (body @0,0  head @0,32  leg x4 @32,32  horn x2 @48,32).
+// Each part is a standard box unwrap (top/bottom row, then right/front/left/back), see buildMobModel.
+// A placeholder copy is embedded as a fallback so the cow is never untextured.
+const COW_SKIN_URLS = ['assets/mobs/cow.png', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABf0lEQVR4nO2YvW7CMBDHHZSJuSMTE4pQ5yoz6oSYUSf6Egw8QAeegpEZdUJ9gKojQ54gU9WZlU5UwfGRD59zcf3/TcEKd5fzfdmRYuInzy5cskw8jJLIhdyBC6E+EXMKWzzPS2uH4zunCnaCjwA4QNoAaeAAaQOkYeutvs4BrG2QQm+PfWqNwacAHCBtgDTsNaDP+W4CEdCFkj5HQfBzAFLA9c5xkSbjkp1tUkuPpL8aYLrMaKtEgraXMUgBaQOUko2+Rg6QvPNzpQcpcH3wpdhRtLUfESBtgFKy0Rf5Mghx4WqkBgD4CVkQiqcvjlNXXaqKMiU3+9zd/C95WtXSjzlA2gBb9J3X16sigXSA76NxXcQjoOkgpr//nX9Z6Rd3gC11ix1FbFvtKaid7dsoGnwXuOuAyTRVk2lK/v4PdH4a1FPAVr9tSgWfAne7wPnjZFwfzh6dGCNBZRtcbjdqv34rPXPxsnxlldeUyhQofjD3xwMAAAAAAAAAAAAA0D2/oAB28NAi0nQAAAAASUVORK5CYII='];
+let COW_SKIN_CANVAS = null;
+const COW_SKIN_TEX = [];
+function getCowSkinCanvas(){
+  if(COW_SKIN_CANVAS) return COW_SKIN_CANVAS;
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+  const x = c.getContext('2d'); x.fillStyle = '#e8e0d0'; x.fillRect(0,0,64,64);
+  COW_SKIN_CANVAS = c;
+  const tryLoad = i=>{
+    if(i >= COW_SKIN_URLS.length) return;
+    const img = new Image();
+    img.onload = ()=>{
+      x.clearRect(0,0,64,64); x.imageSmoothingEnabled = false; x.drawImage(img,0,0,64,64);
+      COW_SKIN_TEX.forEach(t=>{ t.needsUpdate = true; });
+    };
+    img.onerror = ()=>{ console.warn('Cow skin failed:', COW_SKIN_URLS[i].slice(0,40)); tryLoad(i+1); };
+    img.src = COW_SKIN_URLS[i];
+  };
+  tryLoad(0);
+  return c;
+}
 
 // Restore a custom skin saved by Skin Studio.
 (function loadStoredSkin(){
@@ -7450,20 +7475,41 @@ class Game{
       return new THREE.Mesh(geo, mat);
     }
     const parts = {};
-    if(kind==='cow' || kind==='pig'){
-      const bodyColor = kind==='cow' ? 0xe8e0d0 : 0xe8a0a8;
-      const spotColor = kind==='cow' ? 0x3a2a20 : 0xd88090;
+    if(kind==='cow'){
+      // Textured from assets/mobs/cow.png. 1 skin pixel = 1/16 block. Front of the cow is -Z (the way it walks).
+      const P = 1/16;
+      const R = (u,v,w,h,d)=>({ top:[u+d,v,w,d], bottom:[u+d+w,v,w,d], right:[u,v+d,d,h], front:[u+d,v+d,w,h], left:[u+d+w,v+d,d,h], back:[u+2*d+w,v+d,w,h] });
+      const tex = new THREE.CanvasTexture(getCowSkinCanvas());
+      tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.needsUpdate = true;
+      COW_SKIN_TEX.push(tex);
+      const mat = new THREE.MeshLambertMaterial({ map: tex });
+      const mk = (w,h,d,u,v)=> new THREE.Mesh(skinBox(w*P,h*P,d*P,R(u,v,w,h,d),0), mat);
+      const body = mk(12,10,18, 0,0);   body.position.set(0, 15*P, 0);
+      const head = mk(8,8,6, 0,32);     head.position.set(0, 17*P, -11.5*P);
+      const hornL = mk(2,3,2, 48,32);   hornL.position.set(-5*P, 22*P, -10.5*P);
+      const hornR = mk(2,3,2, 48,32);   hornR.position.set( 5*P, 22*P, -10.5*P);
+      const legMeshes = [], legs = [];
+      // legs hang from a hip pivot so they swing instead of spinning in place; front legs are at -Z
+      for(const [lx,lz] of [[-4,-6.5],[4,-6.5],[4,6.5],[-4,6.5]]){   // order puts diagonal pairs in step
+        const pivot = new THREE.Group(); pivot.position.set(lx*P, 10*P, lz*P);
+        const m = mk(4,10,4, 32,32); m.position.y = -5*P;
+        pivot.add(m); group.add(pivot); legs.push(pivot); legMeshes.push(m);
+      }
+      group.add(body, head, hornL, hornR);
+      Object.assign(parts,{ body, head, legs, flashMeshes:[body, head, hornL, hornR, ...legMeshes] });
+    } else if(kind==='pig'){
+      const bodyColor = 0xe8a0a8, spotColor = 0xd88090;
       const body = box(0.55,0.5,0.9, bodyColor);
       body.position.set(0,0.7,0);
       const spot = box(0.3,0.2,0.4, spotColor);
-      spot.position.set(0.1,0.85,0.15);
+      spot.position.set(0.1,0.85,-0.15);
       const head = box(0.35,0.32,0.32, bodyColor);
-      head.position.set(0,0.72,0.55);
+      head.position.set(0,0.72,-0.55);   // front is -Z
       const legGeo = ()=>box(0.15,0.4,0.15, bodyColor);
-      const l1=legGeo(); l1.position.set(-0.18,0.2,0.3);
-      const l2=legGeo(); l2.position.set(0.18,0.2,0.3);
-      const l3=legGeo(); l3.position.set(-0.18,0.2,-0.3);
-      const l4=legGeo(); l4.position.set(0.18,0.2,-0.3);
+      const l1=legGeo(); l1.position.set(-0.18,0.2,-0.3);
+      const l2=legGeo(); l2.position.set(0.18,0.2,-0.3);
+      const l3=legGeo(); l3.position.set(0.18,0.2,0.3);
+      const l4=legGeo(); l4.position.set(-0.18,0.2,0.3);
       group.add(body,spot,head,l1,l2,l3,l4);
       Object.assign(parts,{body,head,legs:[l1,l2,l3,l4]});
     } else { // hostile: textured zombie built from the standard player rig
@@ -7590,7 +7636,7 @@ class Game{
         if(m.wandering) this.stepMobPos(m, delta, 1.1, m.wanderYaw);
       }
       m.group.position.copy(m.pos);
-      m.group.rotation.y = m.yaw + Math.PI; // animal heads sit on +z, walking direction is -z
+      m.group.rotation.y = m.yaw; // every mob model faces -Z, which is the direction it walks
       const legBob = Math.sin(m.bobT)*0.35;
       if(m.parts.legs) m.parts.legs.forEach((leg,idx)=>{ leg.rotation.x = (idx%2===0?1:-1)*legBob*(m.wandering||m.fleeT>0?1:0.15); });
     }
@@ -7736,7 +7782,7 @@ class Game{
   }
 
   setMobFlash(m, on){
-    const parts = m.parts.legs ? [m.parts.body, m.parts.head, ...m.parts.legs] : Object.values(m.parts);
+    const parts = m.parts.flashMeshes || (m.parts.legs ? [m.parts.body, m.parts.head, ...m.parts.legs] : Object.values(m.parts));
     parts.forEach(p=>{
       if(!p.material) return;
       if(on){
@@ -7755,7 +7801,7 @@ class Game{
     const {origin, dir} = this.getLookRay();
     let best = null, bestT = maxDist;
     const testList = (list, kind)=>{
-      const heights = kind==='hostile' ? [0.35, 0.9, 1.45] : [0.6];   // zombies: test feet / torso / head
+      const heights = kind==='hostile' ? [0.35, 0.9, 1.45] : [0.45, 0.9];   // zombies: test feet / torso / head
       const radius = kind==='hostile' ? 0.45 : 0.55;
       for(const m of list){
         for(const hy of heights){
