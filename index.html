@@ -451,14 +451,16 @@
     position:fixed; inset:0; z-index:60; background:#0a0c12; display:flex;
     flex-direction:column; align-items:center; justify-content:center; gap:14px;
   }
-  #loadingScreen{background:radial-gradient(ellipse at 50% 42%, #1a2233 0%, #0a0c12 70%);}
-  #loadingScreen .vf-title{font-size:28px; color:var(--vf-orange); font-family:'Cinzel','Segoe UI',Georgia,serif; font-weight:900; letter-spacing:.28em; padding-left:.28em; text-shadow:0 0 22px #e0742a66;}
-  .loadSceneWrap{position:relative; width:min(300px,84vw); aspect-ratio:300/250;}
-  #loadScene{width:100%; height:100%; display:block; image-rendering:auto;}
-  .loadPct{position:absolute; left:0; right:0; bottom:-4px; text-align:center; font:900 30px 'Cinzel','Segoe UI',Georgia,serif; letter-spacing:.12em; color:#fff; text-shadow:0 0 16px #e0742a, 0 2px 0 #000;}
-  .loadBarOuter{width:280px; height:18px; border:2px solid var(--vf-line); border-radius:3px; overflow:hidden; background:#0e111a;}
-  .loadBarInner{height:100%; width:0%; background:linear-gradient(90deg,#f0954a,var(--vf-orange)); transition:width .2s;}
-  #loadingScreen .loadLabel{font-size:12px; color:#9aa4c0; letter-spacing:.06em;}
+  #loadingScreen{background:radial-gradient(ellipse at 50% 0%, #2a3550 0%, #0a0c12 70%);}
+  #loadingScreen .vf-title{font-size:34px; color:var(--vf-orange);}
+  .loadCard{
+    background:var(--vf-panel); border:3px solid var(--vf-line); border-radius:6px;
+    box-shadow:0 0 0 3px #0008, 0 20px 60px #000a; padding:16px 16px 14px; width:min(380px,92vw); text-align:center;
+  }
+  #loadScene{display:block; width:100%; height:auto; image-rendering:pixelated; image-rendering:crisp-edges; image-rendering:pixelated;
+    background:linear-gradient(#202a40,#121722); border:2px solid #0a0c12; border-radius:3px;}
+  .loadPct{margin-top:10px; font:900 26px 'Courier New',monospace; letter-spacing:2px; color:var(--vf-orange); text-shadow:3px 3px 0 #00000080;}
+  #loadingScreen .loadLabel{font-size:12px; color:#9aa4c0;}
   #loadingScreen .loadTip{
     font-size:11px; color:#6f7994; max-width:320px; text-align:center;
     min-height:14px; opacity:0; transition:opacity .35s ease;
@@ -852,8 +854,8 @@
 
 <div id="loadingScreen">
   <div class="vf-title">VOXEL FORGE</div>
-  <div class="loadSceneWrap">
-    <canvas id="loadScene" width="300" height="250"></canvas>
+  <div class="loadCard">
+    <canvas id="loadScene" width="320" height="144"></canvas>
     <div class="loadPct" id="loadPct">0%</div>
   </div>
   <div class="loadLabel" id="loadLabel">Booting engine…</div>
@@ -10431,122 +10433,78 @@ function hungerIconDataUrl(state){
 /* -------------------------------------------------------------------------
    7. BOOT SEQUENCE / MENU
 ------------------------------------------------------------------------- */
-/* Loading scene: instead of a bar, a little isometric island is built block by block as the world
-   loads. Each block drops in when the progress reaches its turn; a bobbing island, sparkles and a
-   big percentage sit on top. Pure canvas, stops drawing as soon as the loading screen is hidden. */
+/* Loading scene: a pixel side-view strip of terrain, built from the game's own block textures, that
+   grows left to right as the world loads — each block drops into place. Hard pixel edges, no glow, same
+   look as the menu. Stops drawing as soon as the loading screen is hidden. */
 const LoadScene = (function(){
-  const TW = 26, TH = 13, CH = 13, N = 8, OX = 150, OY = 125;
-  const COL = {
-    grass:{ top:'#6cb948', side:'#7b5a3a', strip:'#5a9a3a' },
-    dirt: { top:'#8a6542', side:'#7b5a3a' },
-    stone:{ top:'#8f9096', side:'#7a7b81' },
-    sand: { top:'#e4d49a', side:'#cfbf84' },
-    water:{ top:'#3f7fd6', side:'#2f64b0' },
-    wood: { top:'#9a7a4a', side:'#6b4a2a' },
-    leaf: { top:'#4f9a3c', side:'#3f8030' },
-  };
-  let blocks = [], shown = 0, target = 0, running = false, raf = 0, last = 0, t = 0, parts = [];
+  const TS = 16, COLS = 20, ROWS = 9, W = COLS*TS, H = ROWS*TS;   // 320 x 144
+  let cells = [], shown = 0, target = 0, running = false, raf = 0, last = 0, t = 0;
   let cv = null, ctx = null, pctEl = null;
-
-  function shade(hex, f){
-    const n = parseInt(hex.slice(1), 16);
-    const r = Math.min(255, Math.round((n>>16 & 255)*f)), g = Math.min(255, Math.round((n>>8 & 255)*f)), b = Math.min(255, Math.round((n & 255)*f));
-    return 'rgb('+r+','+g+','+b+')';
+  const tiles = {};
+  function tile(name){
+    if(tiles[name]) return tiles[name];
+    const c = makeCanvas(); const cx = c.getContext('2d');
+    (TexturePainters[name] || TexturePainters.stone)(cx, hashStr(name));
+    return (tiles[name] = c);
   }
   function build(){
-    blocks = [];
-    const c = (N-1)/2, hs = {};
-    let treeAt = null, bestD = 9;
-    for(let x=0; x<N; x++) for(let z=0; z<N; z++){
-      const d = Math.hypot(x-c, z-c) / (N*0.56);
-      if(d > 1) continue;
-      const h = Math.max(1, Math.min(5, Math.round(3.4*(1-d*0.7) + Math.random()*1.5)));
-      hs[x+','+z] = h;
-      for(let y=0; y<h; y++){
-        let type = 'stone';
-        if(y === h-1) type = h<=1 ? 'water' : (h===2 ? 'sand' : 'grass');
-        else if(y >= h-3) type = 'dirt';
-        blocks.push({x, y, z, type, key:y*100 + d*40 + Math.random()*6, t0:-1});
+    cells = [];
+    // gentle stepped hills, 3..6 blocks tall
+    let h = 4; const heights = [];
+    for(let x=0; x<COLS; x++){
+      const r = Math.random();
+      if(r < 0.28) h++; else if(r < 0.56) h--;
+      h = Math.max(3, Math.min(6, h));
+      heights.push(h);
+    }
+    // two trees on flat-ish spots away from the edges
+    const trees = new Set();
+    [4+Math.floor(Math.random()*3), 12+Math.floor(Math.random()*4)].forEach(x=>{ if(x>1 && x<COLS-2) trees.add(x); });
+    for(let x=0; x<COLS; x++){
+      const top = heights[x];
+      for(let y=0; y<top; y++){                       // y = 0 is the bottom row
+        let name = 'stone';
+        if(y === top-1) name = 'grass_top';
+        else if(y >= top-3) name = 'dirt';
+        else if(Math.random() < 0.09) name = 'coal_ore';
+        const side = (y === top-1) ? 'grass_side' : name;
+        cells.push({ x, y, name, side, col:x, ord:x*10 + y, t0:-1 });
       }
-      if(h>=3 && d>0.15 && d<0.6){ const dd = Math.abs(d-0.35) + Math.random()*0.1; if(dd < bestD){ bestD = dd; treeAt = {x, z, h}; } }
-    }
-    if(treeAt){
-      const {x, z, h} = treeAt;
-      for(let i=0; i<3; i++) blocks.push({x, y:h+i, z, type:'wood', key:1000+i, t0:-1});
-      for(let dx=-1; dx<=1; dx++) for(let dz=-1; dz<=1; dz++) for(let dy=0; dy<2; dy++){
-        if(dy===1 && (dx!==0 || dz!==0) && Math.abs(dx)+Math.abs(dz)>1) continue;
-        blocks.push({x:x+dx, y:h+2+dy, z:z+dz, type:'leaf', key:1100+dy*10+Math.random(), t0:-1});
+      if(trees.has(x)){
+        for(let i=0; i<3; i++) cells.push({ x, y:top+i, name:'wood_side', side:'wood_side', ord:x*10 + top+i + 0.5, t0:-1 });
+        for(let dx=-1; dx<=1; dx++) for(let dy=0; dy<2; dy++)
+          cells.push({ x:x+dx, y:top+2+dy, name:'leaves', side:'leaves', ord:x*10 + 8 + dy + (dx+1)*0.1, t0:-1 });
+        cells.push({ x, y:top+4, name:'leaves', side:'leaves', ord:x*10 + 9.5, t0:-1 });
       }
-      blocks.push({x, y:h+4, z, type:'leaf', key:1200, t0:-1});
     }
-    blocks.sort((a,b)=>a.key-b.key);
-    blocks.forEach((b,i)=>{ b.order = i/blocks.length; });
-    parts = [];
-    for(let i=0; i<14; i++) parts.push({x:Math.random(), y:Math.random(), s:0.3+Math.random()*0.7, v:0.04+Math.random()*0.08, ph:Math.random()*6.28});
-  }
-  function poly(pts, fill){
-    ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
-    for(let i=1; i<pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-    ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
-  }
-  function cube(sx, sy, type, alpha){
-    const col = COL[type];
-    ctx.globalAlpha = alpha * (type==='water' ? 0.9 : 1);
-    const T=[sx,sy], R=[sx+TW/2,sy+TH/2], B=[sx,sy+TH], L=[sx-TW/2,sy+TH/2];
-    poly([L,B,[B[0],B[1]+CH],[L[0],L[1]+CH]], shade(col.side, 0.8));
-    poly([B,R,[R[0],R[1]+CH],[B[0],B[1]+CH]], shade(col.side, 0.6));
-    if(col.strip){
-      poly([L,B,[B[0],B[1]+4],[L[0],L[1]+4]], shade(col.strip, 0.85));
-      poly([B,R,[R[0],R[1]+4],[B[0],B[1]+4]], shade(col.strip, 0.68));
-    }
-    poly([T,R,B,L], col.top);
-    ctx.globalAlpha = alpha*0.16; poly([T,R,B,L], '#fff');     // faint top highlight
-    ctx.globalAlpha = 1;
+    cells.sort((a,b)=>a.ord-b.ord);
+    cells.forEach((c,i)=>{ c.frac = i/cells.length; });
   }
   function frame(now){
     if(!running) return;
     raf = requestAnimationFrame(frame);
     const dt = Math.min(0.05, (now-last)/1000 || 0.016); last = now; t += dt;
-    shown += (target - shown) * Math.min(1, dt*2.6);
+    shown += (target - shown) * Math.min(1, dt*3);
     if(target >= 100 && shown > 99.4) shown = 100;
     if(pctEl) pctEl.textContent = Math.floor(shown) + '%';
-    const W = cv.width, H = cv.height, k = W/300;
-    ctx.setTransform(k,0,0,k,0,0);
-    ctx.clearRect(0,0,300,250);
-    // glow under the island
-    const g = ctx.createRadialGradient(150,170,10,150,170,140);
-    g.addColorStop(0,'rgba(224,116,42,'+(0.10+0.07*Math.sin(t*2))+')'); g.addColorStop(1,'rgba(224,116,42,0)');
-    ctx.fillStyle = g; ctx.fillRect(0,0,300,250);
-    // sparkles drifting up
-    for(const p of parts){
-      p.y -= p.v*dt; if(p.y < -0.05){ p.y = 1.05; p.x = Math.random(); }
-      ctx.globalAlpha = 0.25 + 0.35*Math.abs(Math.sin(t*1.6 + p.ph));
-      ctx.fillStyle = '#ffd9a8'; const sz = 1.5 + p.s*2; ctx.fillRect(p.x*300, p.y*250, sz, sz);
+    ctx.clearRect(0,0,W,H);
+    ctx.imageSmoothingEnabled = false;
+    const prog = shown/100;
+    for(const c of cells){
+      if(prog < c.frac) continue;
+      if(c.t0 < 0) c.t0 = t;
+      const age = Math.min(1, (t-c.t0)/0.28);
+      const off = -(1-age)*(1-age)*110;                  // fast drop, hard stop
+      const px = Math.round(c.x*TS), py = Math.round(H - (c.y+1)*TS + off);
+      ctx.drawImage(tile(c.side), px, py, TS, TS);
+      if(age >= 1 && c.name === 'grass_top'){ /* strip of grass on top of the side texture */ }
     }
-    ctx.globalAlpha = 1;
-    const bob = Math.sin(t*1.7)*3;
-    const nVis = shown/100;
-    const list = [];
-    for(const b of blocks){
-      if(nVis < b.order) continue;
-      if(b.t0 < 0) b.t0 = t;
-      list.push(b);
-    }
-    list.sort((a,b)=> (a.x+a.z)-(b.x+b.z) || a.y-b.y);
-    for(const b of list){
-      const age = Math.min(1, (t-b.t0)/0.45), e = 1 - Math.pow(1-age, 3);
-      const sx = OX + (b.x-b.z)*TW/2;
-      const sy = OY + (b.x+b.z)*TH/2 - (b.y+1)*CH + bob - (1-e)*70;
-      cube(sx, sy, b.type, e);
-    }
-    ctx.setTransform(1,0,0,1,0,0);
   }
   return {
     start(){
       cv = document.getElementById('loadScene'); pctEl = document.getElementById('loadPct');
       if(!cv) return;
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      cv.width = 300*dpr; cv.height = 250*dpr;
+      cv.width = W; cv.height = H;
       ctx = cv.getContext('2d');
       build(); shown = 0; target = 0; t = 0; last = performance.now();
       if(!running){ running = true; raf = requestAnimationFrame(frame); }
@@ -11066,7 +11024,7 @@ async function launchGame(){
   await new Promise(r=>requestAnimationFrame(r)); // let the label paint before the (synchronous) compile below
   warmAllBlockMaterialsOnGPU(gameInstance);
   setLoad(100, 'Ready!');
-  await new Promise(r=>setTimeout(r, 650)); // let the last blocks of the island land before the screen goes
+  await new Promise(r=>setTimeout(r, 650)); // let the last blocks land before the screen goes
 
   stopLoadingTips();
   document.getElementById('loadingScreen').style.display='none';
