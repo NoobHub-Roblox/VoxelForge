@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Voxel Forge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&display=swap" rel="stylesheet">
 <style>
   :root{
     --vf-orange:#e0742a;
@@ -509,6 +512,44 @@
     text-transform:capitalize;
   }
   #vfTooltip.show{opacity:1; transform:translateY(0);}
+
+  /* ---------- Death screen ---------- */
+  #deathScreen{
+    position:fixed; inset:0; z-index:9000; display:none; flex-direction:column; align-items:center; justify-content:center;
+    gap:clamp(14px,3vh,30px); padding:24px; box-sizing:border-box; text-align:center; color:#fff;
+    font-family:'Cinzel','Trajan Pro','Palatino Linotype',Georgia,serif;
+    background:radial-gradient(ellipse at center, rgba(70,0,0,.45) 0%, rgba(18,0,0,.88) 70%, rgba(6,0,0,.96) 100%);
+    opacity:0; transition:opacity 1.6s ease; -webkit-user-select:none; user-select:none;
+  }
+  #deathScreen.show{opacity:1;}
+  #deathScreen .dsTitle{
+    font-weight:900; font-size:clamp(34px,9vw,104px); letter-spacing:.16em; text-transform:uppercase; padding-left:.16em;
+    color:#d8382f; text-shadow:0 0 38px #a3140c, 0 0 8px #5a0a06, 0 5px 0 #2a0402;
+    opacity:0; transform:scale(.2);
+  }
+  #deathScreen .dsCause{
+    font-weight:500; font-size:clamp(17px,3.6vw,36px); letter-spacing:.07em; color:#f1d9d4; text-shadow:0 2px 10px #000;
+    opacity:0; transform:scale(.2); max-width:90vw;
+  }
+  #deathScreen.show .dsTitle{animation:dsGrow 3.4s cubic-bezier(.16,.84,.28,1) .25s forwards;}
+  #deathScreen.show .dsCause{animation:dsGrow 3s cubic-bezier(.16,.84,.28,1) 1.1s forwards;}
+  @keyframes dsGrow{0%{opacity:0; transform:scale(.2);} 45%{opacity:1;} 100%{opacity:1; transform:scale(1);}}
+  #deathScreen .dsBtn{
+    margin-top:clamp(6px,2vh,22px); font:700 clamp(15px,2.6vw,24px) 'Cinzel',Georgia,serif; letter-spacing:.2em; text-transform:uppercase;
+    color:#fff; background:#00000066; border:2px solid #d8382f; border-radius:3px; padding:.75em 2.4em; cursor:pointer;
+    opacity:0; transform:translateY(10px); pointer-events:none; transition:opacity .9s ease, transform .9s ease, background .2s, box-shadow .2s;
+    touch-action:manipulation;
+  }
+  #deathScreen.ready .dsBtn{opacity:1; transform:none; pointer-events:auto;}
+  #deathScreen .dsBtn:hover,#deathScreen .dsBtn:active{background:#d8382f; box-shadow:0 0 28px #d8382f99;}
+  #deathScreen .dsHint{
+    position:absolute; bottom:calc(28px + env(safe-area-inset-bottom,0px)); left:0; right:0; font-size:13px; letter-spacing:.3em;
+    text-transform:uppercase; color:#ffffffb0; text-shadow:0 1px 6px #000; opacity:0; transition:opacity 1s ease .6s;
+  }
+  /* camera fly-back: the red fades away, the tap-to-skip overlay stays */
+  #deathScreen.cine{background:transparent; transition:background 1s ease; opacity:1;}
+  #deathScreen.cine .dsTitle,#deathScreen.cine .dsCause,#deathScreen.cine .dsBtn{opacity:0; animation:none; transition:opacity .5s ease; pointer-events:none;}
+  #deathScreen.cine .dsHint{opacity:1;}
 
   /* ---------- Minecraft-style cursor stack + slot polish ---------- */
   #cursorStack{position:fixed; left:0; top:0; z-index:10000; pointer-events:none; display:none; width:44px; height:44px;}
@@ -2952,6 +2993,11 @@ class World{
     this.queueLiquid(wx,wy,wz+1); this.queueLiquid(wx,wy,wz-1);
   }
 
+  // Sand / gravel gravity: edited cells (and the cell above them) are re-checked by Game._updateFalling().
+  queueFall(wx,wy,wz){
+    (this.fallQueue || (this.fallQueue = new Set())).add(wx+','+wy+','+wz);
+  }
+
   getChunk(cx,cy,cz, createIfMissing=false){
     const k = chunkKey(cx,cy,cz);
     let c = this.chunks.get(k);
@@ -2997,6 +3043,7 @@ class World{
       // a real (player-driven) edit — re-check this cell and its neighbors
       // for liquid flow next tick (e.g. breaking a wall lets water through)
       this.queueLiquidNeighbors(wx,wy,wz);
+      if(!this._noFall){ this.queueFall(wx,wy,wz); this.queueFall(wx,wy+1,wz); } // sand/gravel above a gap
       c.dirty = true;
       this.dirtyVersion++;
       this.pendingRebuild.add(chunkKey(cx,cy,cz));
@@ -7261,13 +7308,12 @@ class Game{
     const c = this._touchingCactus();
     if(!c) return;
     const before = this.health;
-    this.damage(1); // damage() already enforces the 0.5s hurt cooldown, so this is 1 point per half second
+    this.damage(1, 'Pricked to death by a cactus'); // damage() already enforces the 0.5s hurt cooldown, so this is 1 point per half second
     if(this.health < before){
       // a little shove away from the spines
       const k = (this._kb = this._kb || { x:0, z:0 });
       let dx = this.pos.x - c.x, dz = this.pos.z - c.z; const l = Math.hypot(dx,dz) || 1;
       k.x += dx/l*2.5; k.z += dz/l*2.5;
-      if(this.dead) this.showCenterMsg('Pricked to death by a cactus', 1400);
     }
   }
 
@@ -7552,7 +7598,7 @@ class Game{
           m.yaw = towardYaw;
           if(m.attackCD<=0){
             m.attackCD = 1.0;
-            this.damage(1);
+            this.damage(1, 'Slain by a zombie');
           }
         }
       } else {
@@ -7856,7 +7902,7 @@ class Game{
     if(GAME_MODE==='survival' && !this.flying && !this.inWater && wasAirborne && this.onGround && velYBeforeCollision < -12){
       const fallSpeed = -velYBeforeCollision;
       const dmg = Math.floor((fallSpeed-12) * 0.6);
-      if(dmg>0) this.damage(dmg);
+      if(dmg>0) this.damage(dmg, 'Hit the ground too hard');
     }
   }
 
@@ -8891,7 +8937,8 @@ class Game{
   _applyRemoteBlock(snap){
     const [x,y,z] = snap.key.split('_').map(Number);
     const id = snap.val();
-    this.world.setBlock(x,y,z, id==null?0:id);
+    this.world._noFall = true;   // the editing player simulates any falling and syncs the result
+    try{ this.world.setBlock(x,y,z, id==null?0:id); } finally { this.world._noFall = false; }
   }
 
   _addOtherPlayer(uid, data){
@@ -9019,15 +9066,12 @@ class Game{
     if(Date.now() - (v.t || 0) > 8000) return; // stale (e.g. sent while I was offline)
     const dmg = Math.max(1, Math.min(8, v.dmg));
     const before = this.health;
-    this.damage(dmg);
+    const _atk = this.otherPlayers.get(v.from);
+    this.damage(dmg, 'Slain by ' + (_atk ? _atk.name : 'a player'));
     if(this.health < before){
       const k = (this._kb = this._kb || { x:0, z:0 });
       k.x += (Number.isFinite(v.kx) ? v.kx : 0) * 7; k.z += (Number.isFinite(v.kz) ? v.kz : 0) * 7;
       if(!this.flying) this.vel.y = Math.max(this.vel.y, 4.5);
-      if(this.dead){
-        const who = this.otherPlayers.get(v.from);
-        this.showCenterMsg('Slain by ' + (who ? who.name : 'a player'), 1400);
-      }
     }
   }
 
@@ -9204,12 +9248,99 @@ class Game{
     panel.textContent = `XYZ: ${this.pos.x.toFixed(1)}, ${this.pos.y.toFixed(1)}, ${this.pos.z.toFixed(1)}`;
   }
 
+  /* ---------------- Falling sand & gravel ----------------
+     Edits queue the touched cell + the cell above (World.queueFall). Each frame the queue is drained: a
+     sand/gravel block with air or liquid under it is removed from the world and becomes a falling block
+     entity that accelerates downward, then lands on the first solid block and turns back into a block
+     (synced like any other edit). Landing on a column that got filled meanwhile drops it as an item. */
+  _fallPassable(x,y,z){
+    if(y < MIN_Y) return false;
+    const {cx,cy,cz} = this.world.worldToChunk(x,y,z);
+    const ch = this.world.getChunk(cx,cy,cz);
+    if(!ch || !ch.generated) return false;       // never fall into unloaded terrain
+    const id = this.world.getBlock(x,y,z);
+    if(id===0) return true;
+    const d = BLOCKS[id];
+    return !!(d && d.liquid);
+  }
+  _fallMaterial(){
+    return this._fallMat || (this._fallMat = new THREE.MeshLambertMaterial({ map: BlockAtlas.texture }));
+  }
+  _spawnFaller(id,x,y,z){
+    const geo = new THREE.BoxGeometry(1,1,1);
+    const uv = geo.attributes.uv, faces = ['side','side','top','bottom','side','side'];
+    for(let f=0; f<6; f++){
+      const r = BlockAtlas.rect(faceMaterialKey(id, faces[f]));
+      for(let v=0; v<4; v++){
+        const i = f*4 + v;
+        uv.setXY(i, r[0] + uv.getX(i)*(r[2]-r[0]), r[1] + uv.getY(i)*(r[3]-r[1]));
+      }
+    }
+    uv.needsUpdate = true;
+    const mesh = new THREE.Mesh(geo, this._fallMaterial());
+    mesh.scale.setScalar(0.98);
+    mesh.castShadow = CHUNK_SHADOWS;
+    mesh.position.set(x+0.5, y+0.5, z+0.5);
+    this.scene.add(mesh);
+    (this._fallers || (this._fallers = [])).push({id, x, z, py:y, vy:0, mesh});
+  }
+  _updateFalling(delta){
+    const w = this.world;
+    if(w.fallQueue && w.fallQueue.size){
+      const cells = Array.from(w.fallQueue); w.fallQueue.clear();
+      let n = 0;
+      for(const key of cells){
+        const [x,y,z] = key.split(',').map(Number);
+        const id = w.getBlock(x,y,z);
+        if(id!==5 && id!==26) continue;                           // sand, gravel
+        if(!this._fallPassable(x,y-1,z)) continue;
+        if(n >= 48 || (this._fallers && this._fallers.length >= 96)){ w.fallQueue.add(key); continue; } // rest next frame
+        n++;
+        w.setBlock(x,y,z,0);
+        this.markChunkRebuildsAround(x,y,z);
+        this.syncBlockChange(x,y,z,0);
+        this._spawnFaller(id,x,y,z);
+      }
+    }
+    const list = this._fallers;
+    if(!list || !list.length) return;
+    for(let i=list.length-1; i>=0; i--){
+      const f = list[i];
+      f.vy = Math.max(-38, f.vy - 26*delta);
+      const newPy = f.py + f.vy*delta;
+      let land = null;
+      for(let c=Math.ceil(f.py)-1; c>=Math.floor(newPy); c--){
+        if(!this._fallPassable(f.x,c,f.z)){ land = c+1; break; }
+      }
+      if(land === null){
+        f.py = newPy;
+        f.mesh.position.set(f.x+0.5, f.py+0.5, f.z+0.5);
+        if(f.py < MIN_Y-4){ land = -1e9; }                         // fell out of the world: vanish
+        else continue;
+      }
+      // landed (or lost)
+      this.scene.remove(f.mesh); f.mesh.geometry.dispose();
+      list.splice(i,1);
+      if(land < MIN_Y) continue;
+      if(this._fallPassable(f.x,land,f.z)){
+        this.world.setBlock(f.x,land,f.z,f.id);
+        this.markChunkRebuildsAround(f.x,land,f.z);
+        this.syncBlockChange(f.x,land,f.z,f.id);
+        this._burst(f.x+0.5, land+0.5, f.z+0.5, f.id, 8, 0.8);
+        playBlockSound('grass');
+      } else {
+        this._spawnDrop(f.id, 1, undefined, { pos:new THREE.Vector3(f.x+0.5, land+0.5, f.z+0.5), vel:new THREE.Vector3(0,3,0), delay:0.5, magnet:false });
+      }
+    }
+  }
+
   /* ---------------- Health / damage ---------------- */
   // Apply `amount` points of damage (2 points = 1 heart). No-op in creative,
   // while already dead, or during the brief post-hit invulnerability window.
-  damage(amount){
+  damage(amount, cause){
     if(GAME_MODE==='creative' || this.dead || amount<=0) return;
     if(this.invulnT>0) return;
+    this._deathCause = cause || null;
     this.health = Math.max(0, this.health-amount);
     this.invulnT = 0.5; // half-second of i-frames, same spirit as classic block games
     this.updateHealthUI();
@@ -9240,8 +9371,110 @@ class Game{
     this.dead = true;
     this.stopMineLoop();
     this._dropEverything();
-    this.showCenterMsg('You died', 1400);
-    setTimeout(()=>{ this.respawn(); }, 1400);
+    ['inventoryPanel','craftingPanel','furnacePanel','recipeBookPanel'].forEach(id=>{ const el = document.getElementById(id); if(el) el.style.display = 'none'; });
+    if(document.pointerLockElement) document.exitPointerLock();
+    this._deathEye = this.camera.position.clone();
+    this._deathT = 0;
+    this._showDeathScreen(this._deathCause || 'You died');
+  }
+
+  /* ---------------- Death screen + respawn camera fly-back ----------------
+     1. the screen fades in; "YOU DIED" and the cause grow from tiny to full size
+     2. Respawn appears; clicking it fades the red away
+     3. the camera lifts off from where you died, sweeps over the land, and glides down onto your spawn point
+        (tap / click anywhere to skip), then you get control back. */
+  _ensureDeathScreen(){
+    let el = document.getElementById('deathScreen');
+    if(el) return el;
+    el = document.createElement('div');
+    el.id = 'deathScreen';
+    el.innerHTML = '<div class="dsTitle">You Died</div><div class="dsCause"></div>' +
+                   '<button class="dsBtn" type="button">Respawn</button><div class="dsHint">Tap to skip</div>';
+    document.body.appendChild(el);
+    el.querySelector('.dsBtn').addEventListener('click', (e)=>{ e.stopPropagation(); this._startRespawnCine(); });
+    el.addEventListener('click', ()=>{ if(this._cine) this._cine.t = this._cine.dur; });
+    return el;
+  }
+  _showDeathScreen(cause){
+    const el = this._ensureDeathScreen();
+    el.classList.remove('show','ready','cine');
+    el.querySelector('.dsCause').textContent = cause;
+    el.style.display = 'flex';
+    void el.offsetWidth;                     // restart the CSS animations
+    el.classList.add('show');
+    clearTimeout(this._dsReadyT);
+    this._dsReadyT = setTimeout(()=>{ el.classList.add('ready'); }, 2300);
+  }
+  _updateDeathCam(delta){
+    // the view sinks and tilts as you fall over
+    this._deathT = Math.min(1, (this._deathT||0) + delta/0.9);
+    const e = 1 - Math.pow(1-this._deathT, 3);
+    const p = this._deathEye;
+    this.camera.rotation.order = 'YXZ';
+    this.camera.position.set(p.x, p.y - 0.75*e, p.z);
+    this.camera.rotation.y = this.yaw;
+    this.camera.rotation.x = this.pitch;
+    this.camera.rotation.z = 0.55*e;
+  }
+  _respawnTarget(){
+    const t = this.respawnPos.clone(); t.y += 3;
+    const bp = this.bedPos;
+    if(bp){
+      const {cx,cy,cz} = this.world.worldToChunk(bp.x,bp.y,bp.z);
+      const ch = this.world.getChunk(cx,cy,cz);
+      const bb = BLOCKS[this.world.getBlock(bp.x,bp.y,bp.z)];
+      if(bb && bb.bedPart) t.set(bp.x+0.5, bp.y+1.1, bp.z+0.5);
+      else if(ch && ch.generated){ this.bedPos = null; this.addChatLine('System', 'Your bed was missing or obstructed.', false); }
+      else t.set(bp.x+0.5, bp.y+1.1, bp.z+0.5);   // bed chunk not loaded right now: trust it
+    }
+    return t;
+  }
+  _startRespawnCine(){
+    if(this._cine || !this.dead) return;
+    const el = document.getElementById('deathScreen');
+    if(el){ el.classList.remove('ready'); el.classList.add('cine'); }
+    const target = this._respawnTarget();
+    const from = this._deathEye.clone();
+    const to = new THREE.Vector3(target.x, target.y + this.eyeHeight, target.z);
+    const dist = Math.hypot(to.x-from.x, to.z-from.z);
+    this._cine = {
+      t:0, dur: Math.min(9, 4.4 + dist/80), from, to, target, swapped:false,
+      peak: Math.max(from.y, to.y) + 34 + Math.min(dist*0.2, 50),
+      yaw0: this.yaw, pitch0: this.pitch, roll0: this.camera.rotation.z,
+    };
+  }
+  _updateRespawnCine(delta){
+    const c = this._cine;
+    c.t += delta;
+    const u = Math.min(1, c.t / c.dur);
+    const smooth = x=> x*x*(3-2*x);
+    const outCubic = x=> 1 - Math.pow(1-x, 3);
+    const inOutCubic = x=> x<0.5 ? 4*x*x*x : 1 - Math.pow(-2*x+2, 3)/2;
+    const h = smooth(Math.min(1, Math.max(0, (u-0.16)/0.66)));          // sideways glide
+    const y = u < 0.4 ? c.from.y + (c.peak-c.from.y)*outCubic(u/0.4)    // up...
+                      : c.peak + (c.to.y-c.peak)*inOutCubic((u-0.4)/0.6); // ...and down onto the spawn
+    if(!c.swapped && u >= 0.4){                                         // high up: switch the loaded area over to the spawn
+      c.swapped = true;
+      this.pos.copy(c.target); this.vel.set(0,0,0);
+    }
+    if(!this._contextLost) this.updateChunkStreaming();
+    const dip = Math.sin(Math.PI*u);
+    this.camera.rotation.order = 'YXZ';
+    this.camera.position.set(c.from.x + (c.to.x-c.from.x)*h, y, c.from.z + (c.to.z-c.from.z)*h);
+    this.camera.rotation.y = c.yaw0 + 0.8*dip;
+    this.camera.rotation.x = c.pitch0 + (-1.15 - c.pitch0)*Math.pow(dip, 0.7);   // look down over the land at the top
+    this.camera.rotation.z = c.roll0 * (1 - smooth(Math.min(1, u/0.25)));        // level out from the death tilt
+    if(u >= 1) this._endRespawnCine();
+  }
+  _endRespawnCine(){
+    const c = this._cine; if(!c) return;
+    this._cine = null;
+    this.camera.rotation.z = 0;
+    this.yaw = c.yaw0; this.pitch = c.pitch0;
+    this.respawn(c.target);
+    this.invulnT = 1.5;
+    const el = document.getElementById('deathScreen');
+    if(el){ el.classList.remove('show','ready','cine'); el.style.display = 'none'; }
   }
 
   // Survival death: everything you carry spills out where you fell.
@@ -9269,19 +9502,13 @@ class Game{
     this._refreshAll();
   }
 
-  respawn(){
+  respawn(target){
+    const t = target || this._respawnTarget();
     this.health = this.maxHealth;
     this.resetHunger();
     this.dead = false;
     this.vel.set(0,0,0);
-    this.pos.copy(this.respawnPos);
-    this.pos.y += 3;
-    const bp = this.bedPos;
-    if(bp){
-      const bb = BLOCKS[this.world.getBlock(bp.x,bp.y,bp.z)];
-      if(bb && bb.bedPart) this.pos.set(bp.x+0.5, bp.y+1.1, bp.z+0.5);
-      else { this.bedPos = null; this.addChatLine('System', 'Your bed was missing or obstructed.', false); }
-    }
+    this.pos.copy(t);
     this.updateHealthUI();
   }
 
@@ -9384,6 +9611,7 @@ class Game{
 
         if(this.invulnT>0) this.invulnT = Math.max(0, this.invulnT-delta);
         if((this.paused || this.dead) && this._mineLoopKey) this.stopMineLoop();
+        if(this.dead && !this.paused){ if(this._cine) this._updateRespawnCine(delta); else this._updateDeathCam(delta); }
 
         if(!this.paused && !this.dead){
           this.updateMovement(delta);
@@ -9403,7 +9631,7 @@ class Game{
           // Falling out of the world hurts as normal — the void portal is only
           // triggered by walking into one of the two arches, not by falling.
           if(GAME_MODE==='survival' && this.pos.y < MIN_Y-8){
-            this.damage(1);
+            this.damage(1, 'Fell out of the world');
           }
           this.checkArchCrossing(delta);
           this.updateArchAtmosphere();
@@ -9416,6 +9644,7 @@ class Game{
           }
         }
         this._updateClouds(delta);
+        if(!this.paused) this._updateFalling(delta);
         this.animateOtherPlayers(delta);
         this._updateRemoteMining(delta);
         if(this._pvpCd > 0) this._pvpCd -= delta;
