@@ -1817,6 +1817,8 @@ const ITEMS = {
   121: { name:'zombie_spawn_egg', isItem:true, icon:'egg_zombie', spawnEgg:'zombie' },
   122: { name:'cow_spawn_egg', isItem:true, icon:'egg_cow', spawnEgg:'cow' },
   123: { name:'pig_spawn_egg', isItem:true, icon:'egg_pig', spawnEgg:'pig' },
+  124: { name:'apple', isItem:true, icon:'apple', food:4, sat:2.4 },
+  125: { name:'banana', isItem:true, icon:'banana', food:3, sat:1.8 },
 };
 // Merge ITEMS into a combined lookup so BLOCKS[id] and ITEMS[id] can both be
 // resolved with one table where convenient (definitions, not the placeable list).
@@ -7078,6 +7080,7 @@ class Game{
     this.world.setBlock(m.x,m.y,m.z,0);
     this.markChunkRebuildsAround(m.x,m.y,m.z);
     this.syncBlockChange(m.x,m.y,m.z,0);
+    if(m.id===6) this._scheduleLeafDecayAround(m.x,m.y,m.z); // cut a log: leaves that lose their wood start to rot
     this.addExhaustion(0.005);
     this._cactusCollapseFrom(m.x, m.y+1, m.z); // a cactus resting on what we just removed falls apart
     if(def && def.doorHalf){ // a door is two blocks: take the other half too (no second drop)
@@ -7123,6 +7126,7 @@ class Game{
         });
       }
     }
+    if(m.id===7 && GAME_MODE==='survival') this._spawnLeafBonus(m.x,m.y,m.z,0.7,false); // mined leaves can also give sticks / apples / bananas
     this.damageHeldTool();
     const wasLooping = !!this._mineLoopKey;
     this.stopMineLoop();
@@ -7286,6 +7290,7 @@ class Game{
       this.world.setBlock(px,py,pz,heldId);
       this.markChunkRebuildsAround(px,py,pz);
       this.syncBlockChange(px,py,pz,heldId);
+      if(heldId===7) this._scheduleLeafCheck(px,py,pz); // leaves placed with no wood nearby will rot away
     }
     if(heldId===41) this.addTorchLight(px,py,pz);
     if(GAME_MODE!=='creative' && this.inventoryCounts[heldId] < 90){
@@ -7526,20 +7531,268 @@ class Game{
     return { group, parts };
   }
 
-  trySpawnMobs(){
+  /* ---------------- Leaf decay ----------------
+     A leaf block survives while a log is within 5 steps of it (walking through other leaves).
+     Cutting a log, or placing leaves with no wood nearby, schedules the unsupported leaves to
+     vanish after a random delay. A decaying leaf can drop sticks, apples and bananas, and the
+     same items can drop (less often) when a leaf is mined by hand. Only the player who caused
+     the change schedules the decay, so a room never decays the same leaf twice. */
+  _leafSupported(x,y,z){
+    const D = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+    const seen = new Set([x+','+y+','+z]);
+    let frontier = [[x,y,z]];
+    for(let d=0; d<5; d++){
+      const next = [];
+      for(const [cx,cy,cz] of frontier){
+        for(const [dx,dy,dz] of D){
+          const nx=cx+dx, ny=cy+dy, nz=cz+dz;
+          if(!this._mobReady(nx,ny,nz)) return true; // unloaded neighbour: assume it is fine
+          const id = this.world.getBlock(nx,ny,nz);
+          if(id===6) return true;
+          if(id===7){
+            const k = nx+','+ny+','+nz;
+            if(!seen.has(k)){ seen.add(k); next.push([nx,ny,nz]); }
+          }
+        }
+      }
+      if(!next.length) break;
+      frontier = next;
+    }
+    return false;
+  }
+  _scheduleLeafCheck(x,y,z){
+    if(!this._leafDecay) this._leafDecay = new Map();
+    const key = x+','+y+','+z;
+    if(this._leafDecay.has(key)) return;
+    this._leafDecay.set(key, (this._leafClock||0) + 4 + Math.random()*26);
+  }
+  _scheduleLeafDecayAround(x,y,z){
+    for(let dx=-5; dx<=5; dx++) for(let dy=-5; dy<=5; dy++) for(let dz=-5; dz<=5; dz++){
+      if(Math.abs(dx)+Math.abs(dy)+Math.abs(dz) > 6) continue;
+      const lx=x+dx, ly=y+dy, lz=z+dz;
+      if(this.world.getBlock(lx,ly,lz)!==7) continue;
+      if(!this._leafSupported(lx,ly,lz)) this._scheduleLeafCheck(lx,ly,lz);
+    }
+  }
+  _updateLeafDecay(delta){
+    this._leafClock = (this._leafClock||0) + delta;
+    if(!this._leafDecay) this._leafDecay = new Map();
+    const map = this._leafDecay;
+    // Offline worlds also sweep a few random leaves around the player, so old floating leaves rot too
+    if(!ONLINE_MODE){
+      this._leafRT = (this._leafRT||0) + delta;
+      if(this._leafRT >= 0.5){
+        this._leafRT = 0;
+        for(let i=0;i<48;i++){
+          const x = Math.floor(this.pos.x + (Math.random()-0.5)*28);
+          const z = Math.floor(this.pos.z + (Math.random()-0.5)*28);
+          const y = Math.floor(this.pos.y) - 6 + Math.floor(Math.random()*22);
+          if(!this._mobReady(x,y,z) || this.world.getBlock(x,y,z)!==7) continue;
+          if(map.has(x+','+y+','+z)) continue;
+          if(!this._leafSupported(x,y,z)) this._scheduleLeafCheck(x,y,z);
+        }
+      }
+    }
+    if(!map.size) return;
+    let done = 0;
+    for(const [key,due] of map){
+      if(due > this._leafClock) continue;
+      if(done >= 3) break;
+      map.delete(key);
+      const [x,y,z] = key.split(',').map(Number);
+      if(this.world.getBlock(x,y,z)!==7) continue;
+      if(!this._mobReady(x,y,z)){ map.set(key, this._leafClock+5); continue; }
+      if(this._leafSupported(x,y,z)) continue;
+      this._decayLeaf(x,y,z); done++;
+    }
+  }
+  _decayLeaf(x,y,z){
+    this.world.setBlock(x,y,z,0);
+    this.markChunkRebuildsAround(x,y,z);
+    this.syncBlockChange(x,y,z,0);
+    try{ this._burst(x+0.5, y+0.5, z+0.5, 7, 6, 0.6); }catch(e){}
+    if(GAME_MODE==='survival') this._spawnLeafBonus(x,y,z,1,true);
+  }
+  // sticks (100), apples (124), bananas (125)
+  _spawnLeafBonus(x,y,z,scale,share){
+    for(const [id,chance] of [[100,0.20],[124,0.10],[125,0.07]]){
+      if(Math.random() >= chance*scale) continue;
+      const a = Math.random()*Math.PI*2;
+      const d = this._spawnDrop(id, 1, undefined, {
+        pos: new THREE.Vector3(x+0.5, y+0.4, z+0.5),
+        vel: new THREE.Vector3(Math.cos(a)*1.2, 2.6, Math.sin(a)*1.2),
+        delay: 0.4, magnet: true
+      });
+      if(share && d && ONLINE_MODE && fbDB) this._publishDrop(d); // decay drops can be picked up by anyone in the room
+    }
+  }
+
+  /* ---------------- Shared mobs (multiplayer) ----------------
+     Every player simulates the mobs that spawned near them and publishes those (position, facing,
+     health) a few times a second under mobs/<uid>. Everybody else draws them as "ghost" mobs that
+     glide towards the published position, so a zombie chasing you is visible to the whole room.
+     Ghosts can be hit: the hit goes to the owner (mobhits/<owner>), who applies the damage. */
+  _newNetId(){ this._netMobN = (this._netMobN||0) + 1; return this._netMobN.toString(36); }
+  _publishMobs(delta){
+    if(!ONLINE_MODE || !fbDB || !fbUID) return;
+    this._mobPubT = (this._mobPubT||0) + delta;
+    if(this._mobPubT < 0.25) return;
+    this._mobPubT = 0;
+    const map = {}; let n = 0;
+    const r2 = (v)=> Math.round(v*100)/100;
+    const add = (m,k)=>{
+      if(n >= 14 || !m.netId || m.health <= 0) return;
+      if(Math.hypot(m.pos.x-this.pos.x, m.pos.z-this.pos.z) > 40) return;
+      map[m.netId] = { k, x:r2(m.pos.x), y:r2(m.pos.y), z:r2(m.pos.z),
+        yaw:r2(Math.atan2(Math.sin(m.yaw), Math.cos(m.yaw))), hp:Math.round(m.health*10)/10 };
+      n++;
+    };
+    for(const m of this.hostiles) add(m,'zombie');
+    for(const m of this.animals) add(m, m.kind);
+    const ref = fbDB.ref(`worlds/${WORLD_ID}/mobs/${fbUID}`);
+    const now = Date.now();
+    if(n === 0){
+      if(this._mobsSent){ this._mobsSent = false; this._mobsKey = null; ref.remove().catch(()=>{}); }
+      return;
+    }
+    const key = JSON.stringify(map);
+    if(key === this._mobsKey && now - (this._mobsT||0) < 2000) return;
+    if(!this._mobsSent || now - (this._mobsDC||0) > 30000){ ref.onDisconnect().remove(); this._mobsDC = now; }
+    this._mobsSent = true; this._mobsKey = key; this._mobsT = now;
+    ref.set(map).catch(err=>{
+      if(!this._mobWarned){ this._mobWarned = true; console.warn('Mob sync rejected — add the "mobs" rules to your database.', err); }
+    });
+  }
+  _onMobsOwner(uid, v){
+    if(uid === fbUID) return;
+    const gm = this._ghostMobs || (this._ghostMobs = new Map());
+    const now = performance.now();
+    const seen = new Set();
+    if(v && typeof v === 'object'){
+      for(const id in v){
+        const r = v[id];
+        if(!r || !Number.isFinite(r.x) || !Number.isFinite(r.y) || !Number.isFinite(r.z)) continue;
+        const kind = r.k;
+        if(kind!=='cow' && kind!=='pig' && kind!=='zombie') continue;
+        const key = uid + ':' + id;
+        seen.add(key);
+        if(this._deadGhosts && this._deadGhosts[key] > now) continue; // I just killed it; wait for the owner to catch up
+        let g = gm.get(key);
+        if(!g){
+          const built = this.buildMobModel(kind==='zombie' ? 'hostile' : kind);
+          built.group.position.set(r.x, r.y, r.z);
+          this.scene.add(built.group);
+          g = { isGhost:true, owner:uid, id, key, kind, group:built.group, parts:built.parts,
+                pos:new THREE.Vector3(r.x,r.y,r.z), yaw:Number(r.yaw)||0,
+                health: Number.isFinite(r.hp) ? r.hp : 6, maxHealth: kind==='zombie' ? 8 : 6,
+                hitFlashT:0, bobT:Math.random()*10, moved:0 };
+          gm.set(key, g);
+        }
+        g.tx = r.x; g.ty = r.y; g.tz = r.z; g.tyaw = Number(r.yaw)||0;
+        const hp = Number.isFinite(r.hp) ? r.hp : g.health;
+        if(hp < g.health - 0.01){ g.hitFlashT = 0.15; this.setMobFlash(g, true); }
+        g.health = hp; g.seen = now;
+      }
+    }
+    for(const [key,g] of gm) if(g.owner === uid && !seen.has(key)) this._dropGhost(g);
+  }
+  _dropGhost(g){
+    if(g.group) this.scene.remove(g.group);
+    if(this._ghostMobs) this._ghostMobs.delete(g.key);
+  }
+  _clearGhosts(){
+    if(!this._ghostMobs) return;
+    for(const g of Array.from(this._ghostMobs.values())) this._dropGhost(g);
+  }
+  _updateGhostMobs(delta){
+    const gm = this._ghostMobs;
+    if(!gm || !gm.size) return;
+    const dt = Math.min(delta, 0.05), now = performance.now();
+    for(const g of Array.from(gm.values())){
+      if(now - g.seen > 7000){ this._dropGhost(g); continue; }
+      const ox = g.pos.x, oz = g.pos.z;
+      if(Math.hypot(g.tx-g.pos.x, g.tz-g.pos.z) > 8) g.pos.set(g.tx, g.ty, g.tz);
+      else {
+        const k = 1 - Math.exp(-12*dt);
+        g.pos.x += (g.tx-g.pos.x)*k; g.pos.y += (g.ty-g.pos.y)*k; g.pos.z += (g.tz-g.pos.z)*k;
+      }
+      let dyaw = g.tyaw - g.yaw; dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+      g.yaw += dyaw*Math.min(1, dt*12);
+      const moved = Math.hypot(g.pos.x-ox, g.pos.z-oz)/Math.max(dt, 1e-4);
+      g.moved += (moved - g.moved)*Math.min(1, dt*8);
+      if(g.hitFlashT > 0){ g.hitFlashT -= delta; this.setMobFlash(g, g.hitFlashT > 0); }
+      g.group.visible = this._mobReady(g.pos.x, g.pos.y, g.pos.z);
+      g.group.position.copy(g.pos);
+      g.group.rotation.y = g.yaw;
+      if(g.kind === 'zombie'){
+        g.bobT += dt*(2 + g.moved*2.6);
+        const swing = Math.sin(g.bobT)*0.75*Math.min(1, g.moved/2.2);
+        const reach = 1.45 + Math.sin(g.bobT*0.5)*0.07;
+        if(g.parts.legL){ g.parts.legL.rotation.x = swing; g.parts.legR.rotation.x = -swing; }
+        if(g.parts.armL){ g.parts.armL.rotation.x = reach; g.parts.armR.rotation.x = reach; }
+      } else if(g.parts.legs){
+        g.bobT += dt*6;
+        const legBob = Math.sin(g.bobT)*0.35, amt = g.moved > 0.4 ? 1 : 0.15;
+        g.parts.legs.forEach((leg,idx)=>{ leg.rotation.x = (idx%2===0?1:-1)*legBob*amt; });
+      }
+    }
+  }
+  _sendGhostHit(mob, dmg){
+    if(!ONLINE_MODE || !fbDB || !fbUID) return;
+    const kx = mob.pos.x-this.pos.x, kz = mob.pos.z-this.pos.z, kd = Math.hypot(kx,kz) || 1;
+    try{
+      fbDB.ref(`worlds/${WORLD_ID}/mobhits/${mob.owner}`).push({
+        from: fbUID, mid: String(mob.id), dmg: Math.max(1, Math.min(8, Math.round(dmg))),
+        kx: Math.round(kx/kd*100)/100, kz: Math.round(kz/kd*100)/100, t: Date.now()
+      }).catch(err=>console.warn('Mob hit rejected — add the "mobhits" rules to your database.', err));
+    }catch(e){ console.warn('mob hit failed', e); }
+  }
+  // Someone else hit one of the mobs I simulate
+  _onMobHit(snap){
+    const v = snap.val();
+    try{ snap.ref.remove(); }catch(e){}
+    if(!v || !Number.isFinite(v.dmg) || Date.now() - (v.t||0) > 8000) return;
+    const dmg = Math.max(1, Math.min(8, v.dmg));
+    let m = this.animals.find(a=>a.netId === v.mid), isAnimal = true;
+    if(!m){ m = this.hostiles.find(h=>h.netId === v.mid); isAnimal = false; }
+    if(!m) return;
+    m.health -= dmg; m.hitFlashT = 0.15; this.setMobFlash(m, true);
+    if(isAnimal) m.fleeT = 1.6;
+    else {
+      m.aggro = true; m.windup = null;
+      m.kx = (Number.isFinite(v.kx) ? v.kx : 0)*6; m.kz = (Number.isFinite(v.kz) ? v.kz : 0)*6;
+      if(m.onGround) m.vy = 4.5;
+    }
+    if(m.health <= 0){ // the attacker already collected the loot on their side
+      this.scene.remove(m.group);
+      const list = isAnimal ? this.animals : this.hostiles;
+      const i = list.indexOf(m); if(i !== -1) list.splice(i,1);
+    }
+  }
+
+  trySpawnMobs(delta){
     // Passive animals: keep a small population loosely near the player, on
     // grass, in daylight-agnostic fashion (they just don't like to spawn at
     // night, matching classic survival-game rules).
-    const maxAnimals = 8, maxHostiles = 6;
+    const maxAnimals = 14, maxHostiles = 6;
     const px = Math.floor(this.pos.x), pz = Math.floor(this.pos.z);
-    if(this.animals.length < maxAnimals && !this.isNight && Math.random()<0.02){
-      const ax = px + Math.floor((Math.random()-0.5)*40);
-      const az = pz + Math.floor((Math.random()-0.5)*40);
-      const biome = this.world.biomeAt(ax,az);
-      if(biome==='plains' || biome==='forest'){
-        const ay = this.world.heightAt(ax,az)+1;
-        if(this.isSolidAt(ax,ay-1,az) && !this.isSolidAt(ax,ay,az)){
-          this.spawnAnimal(ax+0.5, ay, az+0.5);
+    // Roughly one attempt a second (frame-rate independent). Cows are favoured: the area around you
+    // is topped up to a handful of cows first, then it's mostly cows with the odd pig.
+    this._animalSpawnT = (this._animalSpawnT||0) + (delta||0.016);
+    if(this._animalSpawnT >= 0.8){
+      this._animalSpawnT = 0;
+      if(this.animals.length < maxAnimals && !this.isNight && Math.random() < 0.5){
+        let cows = 0, nearCows = 0;
+        for(const a of this.animals) if(a.kind==='cow'){ cows++; if(Math.hypot(a.pos.x-this.pos.x, a.pos.z-this.pos.z) < 48) nearCows++; }
+        const ang = Math.random()*Math.PI*2, rad = 14 + Math.random()*24;
+        const ax = px + Math.floor(Math.cos(ang)*rad), az = pz + Math.floor(Math.sin(ang)*rad);
+        const biome = this.world.biomeAt(ax,az);
+        if(biome==='plains' || biome==='forest'){
+          const ay = this.world.heightAt(ax,az)+1;
+          if(this.isSolidAt(ax,ay-1,az) && !this.isSolidAt(ax,ay,az)){
+            const wantCow = cows < 10 && (nearCows < 4 || Math.random() < 0.6);
+            this.spawnAnimal(ax+0.5, ay, az+0.5, wantCow ? 'cow' : 'pig');
+          }
         }
       }
     }
@@ -7567,7 +7820,7 @@ class Game{
     group.position.set(x,y,z);
     this.scene.add(group);
     this.animals.push({
-      kind, group, parts,
+      kind, group, parts, netId: this._newNetId(),
       pos: new THREE.Vector3(x,y,z),
       yaw: Math.random()*Math.PI*2,
       wanderT: 0, fleeT: 0, health: 6, maxHealth: 6, hitFlashT: 0,
@@ -7579,7 +7832,7 @@ class Game{
     group.position.set(x,y,z);
     this.scene.add(group);
     this.hostiles.push({
-      kind:'zombie', group, parts, persist: !!persist, // egg-spawned zombies don't burn off in daylight
+      kind:'zombie', group, parts, netId: this._newNetId(), persist: !!persist, // egg-spawned zombies don't burn off in daylight
       pos: new THREE.Vector3(x,y,z),
       yaw: Math.random()*Math.PI*2,
       health: 8, maxHealth: 8, hitFlashT: 0, bobT: Math.random()*10,
@@ -7613,7 +7866,7 @@ class Game{
   }
 
   updateMobs(delta){
-    this.trySpawnMobs();
+    this.trySpawnMobs(delta);
     const despawnDist = (RENDER_DISTANCE+2)*CHUNK_SIZE;
 
     // ---- passive animals: wander, and flee a bit if recently hit ----
@@ -7853,6 +8106,11 @@ class Game{
     };
     testList(this.animals, 'animal');
     testList(this.hostiles, 'hostile');
+    if(this._ghostMobs && this._ghostMobs.size){ // mobs simulated by other players
+      const ga = [], gz = [];
+      for(const g of this._ghostMobs.values()) (g.kind==='zombie' ? gz : ga).push(g);
+      testList(ga, 'animal'); testList(gz, 'hostile');
+    }
     return best;
   }
 
@@ -7866,6 +8124,7 @@ class Game{
     this.setMobFlash(mob, true);
     playBlockSound('stone'); // reuse an existing thud-ish sound for hit feedback
     this.damageHeldTool();
+    if(mob.isGhost) this._sendGhostHit(mob, dmg);
     if(kind==='animal'){
       mob.fleeT = 1.6; // spooked animals run for a bit even if they survive
     }
@@ -7876,6 +8135,7 @@ class Game{
       if(mob.onGround) mob.vy = 4.5;             // and popped up a little
     }
     if(mob.health<=0){
+      if(mob.isGhost){ (this._deadGhosts = this._deadGhosts || {})[mob.key] = performance.now() + 2500; this._dropGhost(mob); }
       this.scene.remove(mob.group);
       const idx = list.indexOf(mob);
       if(idx!==-1) list.splice(idx,1);
@@ -9043,6 +9303,14 @@ class Game{
     dropsRef.on('child_added',   snap=>this._onNetDropAdded(snap.key, snap.val()));
     dropsRef.on('child_removed', snap=>this._onNetDropRemoved(snap.key));
 
+    // mobs simulated by other players (shown as ghosts), and hits other players land on mine
+    this._ghostMobs = new Map(); this._deadGhosts = {};
+    const mobsRef = fbDB.ref(`worlds/${WORLD_ID}/mobs`);
+    mobsRef.on('child_added',   snap=>this._onMobsOwner(snap.key, snap.val()));
+    mobsRef.on('child_changed', snap=>this._onMobsOwner(snap.key, snap.val()));
+    mobsRef.on('child_removed', snap=>this._onMobsOwner(snap.key, null));
+    fbDB.ref(`worlds/${WORLD_ID}/mobhits/${fbUID}`).on('child_added', snap=>this._onMobHit(snap));
+
     // listen for custom skins (stored apart from the presence record so the
     // large PNG is not re-sent with every position update)
     this._remoteSkins = {};
@@ -9150,8 +9418,13 @@ class Game{
     if(!ONLINE_MODE || !fbDB) return;
     try{
       const base = `worlds/${WORLD_ID}`;
-      ['blocks','players','chat','skins','drops','mining'].forEach(p=> fbDB.ref(`${base}/${p}`).off());
+      ['blocks','players','chat','skins','drops','mining','mobs'].forEach(p=> fbDB.ref(`${base}/${p}`).off());
       fbDB.ref(`${base}/hits/${fbUID}`).off();
+      fbDB.ref(`${base}/mobhits/${fbUID}`).off();
+      const myMobs = fbDB.ref(`${base}/mobs/${fbUID}`);
+      myMobs.onDisconnect().cancel(); myMobs.remove().catch(()=>{});
+      this._mobsSent = false; this._mobsKey = null;
+      this._clearGhosts();
       const myMine = fbDB.ref(`${base}/mining/${fbUID}`);
       myMine.onDisconnect().cancel(); myMine.remove().catch(()=>{});
       const mySkin = fbDB.ref(`${base}/skins/${fbUID}`);
@@ -9893,6 +10166,9 @@ class Game{
         if(!this.paused) this._updateFalling(delta);
         this.animateOtherPlayers(delta);
         this._updateRemoteMining(delta);
+        this._publishMobs(delta);
+        this._updateGhostMobs(delta);
+        if(!this.paused) this._updateLeafDecay(delta);
         if(this._pvpCd > 0) this._pvpCd -= delta;
         if(!this.paused) this.updateDayNight(delta);
         if(!this.paused && !this.dead) this.updateMobs(delta);
@@ -10293,9 +10569,12 @@ const TOOL_ICON_URLS = {
   stone_sword:   '',
   iron_sword:    '',
 };
+// Built-in art for items that ship without a PNG next to the HTML (assets/items/<id>.png still wins when present)
+const EMBEDDED_ITEM_ICONS = { 124:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAl0lEQVR4AXSOPQrCUBCE5y0BS0/gCWxSpLCyMkJqEXtP4FU8gJVl8ALiEV4j5BISMISAVcwm8wghj5CFYX/mY1jBqE6btXLdPY6uc/aASgWr61Zfh9TQpByQhqE+o0gv/wVu9x84v5PEpQjNZRAQ9vTJc9g47jK983SRqq5RdppawLcoIOcsM3PQ3lrjnhygpkHZiyZTWwAAAP//7ysP3AAAAAZJREFUAwBcWz8wKVcAtQAAAABJRU5ErkJggg==', 125:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAzElEQVR4AdSPwQ2CQBBFB5vQK1xpwE6swCIswCqMd+3EBrzCVRLPXIE3YTYD7CYknCA8mP3z9+/sQTY+Owy4nMvO33r1FaqHdPD+fDMfsiqAjXlx1IOpCdHF8AkBNGDQJi+abaZBjUYNGoBwe5ZiTdYGGsYUGkDzdf/zC+QnEZC2EairRg8IhrHQgOIqGQawSeqfiCc1iQYQRgh/m4QNHnrAIeZlHQJY0MDAyHPQAQ9eYxKAiMGPbjU64PEsAmhinIMeIxoQM6a0zQE9AAAA///5TK09AAAABklEQVQDACIWaiF3iUBqAAAAAElFTkSuQmCC' };
 function itemIconDataUrl(itemId){
   if(iconCache[itemId]) return iconCache[itemId];
   const item = ITEMS[itemId];
+  if(EMBEDDED_ITEM_ICONS[itemId]){ iconCache[itemId] = EMBEDDED_ITEM_ICONS[itemId]; return iconCache[itemId]; }
   const hardcodedUrl = TOOL_ICON_URLS[item.name];
   if(hardcodedUrl){
     iconCache[itemId] = hardcodedUrl;
