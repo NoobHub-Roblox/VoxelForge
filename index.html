@@ -2434,7 +2434,8 @@ function vfMeshChunk(job, T){
           if(!shouldDraw(id, nb)){
             // A taller liquid next to a lower one of the same kind (source beside a stream, a
             // waterfall edge...) would otherwise leave a see-through gap: draw the exposed step.
-            if(liq[id] && liq[nb] && fam[nb] === fam[id] && fd.ny === 0 && h > 0){
+            // (also across liquids: water beside lower lava still shows the part of its side that sticks up above the lava)
+            if(liq[id] && liq[nb] && fd.ny === 0 && h > 0){
               const nAbove = blockAt(x+fd.nx, y+1, z+fd.nz);
               const nFed = !!(liq[nAbove] && fam[nAbove] === fam[nb]);
               const hn = (nFed || isSrc[nb]) ? 1 : 0.2 + (0.875-0.2) * (flow[nb]/7);
