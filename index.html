@@ -117,6 +117,7 @@
   #statBars{position:absolute; bottom:74px; left:50%; transform:translateX(-50%);
     display:flex; flex-direction:row; flex-wrap:wrap; gap:3px 14px; align-items:center; justify-content:center;
     max-width:calc(100vw - 8px);}
+  #armorRow{order:0; flex-basis:100%; justify-content:center;}
   #healthRow{order:1;}
   #hungerRow{order:2; flex-direction:row-reverse;} /* drumsticks empty from the left, like hearts empty from the right */
   .barRow{display:flex; gap:2px;}
@@ -917,6 +918,7 @@
   <img id="heldItem" alt="">
   <div class="mineBarOuter" id="mineBarOuter"><div class="mineBarInner" id="mineBarInner"></div></div>
   <div id="statBars">
+    <div class="barRow" id="armorRow" style="display:none"></div>
     <div class="barRow" id="hungerRow"></div>
     <div class="barRow" id="healthRow"></div>
   </div>
@@ -945,6 +947,7 @@
     <input id="invSearch" type="search" placeholder="Search blocks &amp; items…" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search blocks and items">
     <div class="invGrid" id="invGrid"></div>
     <div class="hbEditor" id="hbEditor"><h3>HOTBAR</h3><div class="hbRow" id="hbRow"></div></div>
+    <div class="hbEditor" id="armorEditor"><h3>ARMOR <span id="armorPts" style="color:#8892ab; letter-spacing:0;"></span></h3><div class="hbRow" id="armorSlots"></div></div>
     <div style="font-size:11px; color:#8892ab;" id="invHint">Click a block to select it into your hotbar.</div>
     <div class="dropRow">
       <button class="vf-btn" id="dropHeldBtn" disabled><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11M7 10l5 5 5-5M5 20h14"/></svg>Drop held stack</button>
@@ -1822,6 +1825,18 @@ const ITEMS = {
   126: { name:'bucket', isItem:true, icon:'bucket', bucket:'empty' },
   127: { name:'water_bucket', isItem:true, icon:'water_bucket', bucket:'full', liquidId:10, liquidFamily:'water' },
   128: { name:'lava_bucket', isItem:true, icon:'lava_bucket', bucket:'full', liquidId:52, liquidFamily:'lava' },
+  129: { name:'iron_helmet', isItem:true, icon:'iron_helmet', armorSlot:'head', armorTier:'iron', defense:2, durability:165 },
+  130: { name:'iron_chestplate', isItem:true, icon:'iron_chestplate', armorSlot:'chest', armorTier:'iron', defense:6, durability:240 },
+  131: { name:'iron_leggings', isItem:true, icon:'iron_leggings', armorSlot:'legs', armorTier:'iron', defense:5, durability:225 },
+  132: { name:'iron_boots', isItem:true, icon:'iron_boots', armorSlot:'feet', armorTier:'iron', defense:2, durability:195 },
+  133: { name:'gold_helmet', isItem:true, icon:'gold_helmet', armorSlot:'head', armorTier:'gold', defense:2, durability:77 },
+  134: { name:'gold_chestplate', isItem:true, icon:'gold_chestplate', armorSlot:'chest', armorTier:'gold', defense:5, durability:112 },
+  135: { name:'gold_leggings', isItem:true, icon:'gold_leggings', armorSlot:'legs', armorTier:'gold', defense:3, durability:105 },
+  136: { name:'gold_boots', isItem:true, icon:'gold_boots', armorSlot:'feet', armorTier:'gold', defense:1, durability:91 },
+  137: { name:'diamond_helmet', isItem:true, icon:'diamond_helmet', armorSlot:'head', armorTier:'diamond', defense:3, durability:363 },
+  138: { name:'diamond_chestplate', isItem:true, icon:'diamond_chestplate', armorSlot:'chest', armorTier:'diamond', defense:8, durability:528 },
+  139: { name:'diamond_leggings', isItem:true, icon:'diamond_leggings', armorSlot:'legs', armorTier:'diamond', defense:6, durability:495 },
+  140: { name:'diamond_boots', isItem:true, icon:'diamond_boots', armorSlot:'feet', armorTier:'diamond', defense:3, durability:429 },
 };
 // Merge ITEMS into a combined lookup so BLOCKS[id] and ITEMS[id] can both be
 // resolved with one table where convenient (definitions, not the placeable list).
@@ -4206,6 +4221,66 @@ function buildHeldObject(id){
   return holder;
 }
 // Swap the held object on a model-like record {parts, heldId, heldObj}.
+/* ---- armor worn on a player model: plain tinted boxes slightly larger than each limb ----
+   code = 2 bits per slot: head | chest<<2 | legs<<4 | feet<<6   (0 none, 1 iron, 2 gold, 3 diamond) */
+const ARMOR_SLOTS = ['head','chest','legs','feet'];
+const ARMOR_TIER_IDX = { iron:1, gold:2, diamond:3 };
+const ARMOR_TIER_COLORS = { 1:0xd6d6d6, 2:0xf5c935, 3:0x4fe3d0 };
+const _armorMats = {};
+function _armorMat(tier, shade){
+  const k = tier+':'+shade;
+  if(!_armorMats[k]){
+    const c = new THREE.Color(ARMOR_TIER_COLORS[tier]); c.multiplyScalar(shade);
+    _armorMats[k] = new THREE.MeshLambertMaterial({ color:c });
+  }
+  return _armorMats[k];
+}
+function setModelArmor(model, code){
+  if(!model || !model.parts) return;
+  code = (code|0) & 255;
+  if(model._armorCode === code) return;
+  model._armorCode = code;
+  const P = 1.8/32, parts = model.parts;
+  for(const k in parts){
+    const m = parts[k]; if(!m || !m.children) continue;
+    for(let i=m.children.length-1; i>=0; i--){
+      const c = m.children[i];
+      if(c.userData && c.userData.armor){ m.remove(c); if(c.geometry) c.geometry.dispose(); }
+    }
+  }
+  const add = (part, w,h,d, oy, tier, e, shade)=>{
+    const m = parts[part]; if(!m || !tier) return;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry((w+e*2)*P, (h+e*2)*P, (d+e*2)*P), _armorMat(tier, shade));
+    mesh.position.set(0, oy*P, 0);
+    mesh.userData.armor = true;
+    m.add(mesh);
+  };
+  const head=code&3, chest=(code>>2)&3, legs=(code>>4)&3, feet=(code>>6)&3;
+  add('head',8,8,8, 4, head, 1.3, 1);
+  add('body',8,12,4, 0, chest, 1.2, 1);
+  add('armR',4,5,4, -2.5, chest, 1.2, 1);
+  add('armL',4,5,4, -2.5, chest, 1.2, 1);
+  add('body',8,3,4, -4.5, legs, 1.0, 0.9);
+  add('legR',4,8,4, -4, legs, 1.0, 0.9);
+  add('legL',4,8,4, -4, legs, 1.0, 0.9);
+  add('legR',4,4,4, -10, feet, 1.4, 0.78);
+  add('legL',4,4,4, -10, feet, 1.4, 0.78);
+}
+const _armorPipCache = {};
+function armorPipDataUrl(kind){ // 'full' | 'half' | 'empty'
+  if(_armorPipCache[kind]) return _armorPipCache[kind];
+  const c = document.createElement('canvas'); c.width = c.height = 9;
+  const x = c.getContext('2d');
+  const rows = [[1,7],[0,8],[0,8],[0,8],[0,8],[1,7],[2,6],[3,5],[4,4]];
+  rows.forEach(([a,b],y)=>{
+    for(let px=a; px<=b; px++){
+      const on = kind==='full' || (kind==='half' && px<=4);
+      x.fillStyle = on ? ((px===a||y===0) ? '#e4e8ee' : '#b4bcc8') : '#3a3f4a';
+      x.fillRect(px,y,1,1);
+    }
+  });
+  return (_armorPipCache[kind] = c.toDataURL());
+}
 function setModelHeld(rec, rawId){
   const id = sanitizeHeldId(rawId);
   if(rec.heldId === id && rec.heldObj) return;
@@ -4501,6 +4576,19 @@ const RECIPES = [
   { pattern:[[113,0,0],[113,0,0],[100,0,0]], out:{id:112,count:1} },
   // bucket: 3 iron ingots in a V
   { pattern:[[113,0,113],[0,113,0],[0,0,0]], out:{id:126,count:1} },
+  // armor: iron / gold / diamond  (helmet, chestplate, leggings, boots)
+  { pattern:[[113,113,113],[113,0,113],[0,0,0]], out:{id:129,count:1} },
+  { pattern:[[113,0,113],[113,113,113],[113,113,113]], out:{id:130,count:1} },
+  { pattern:[[113,113,113],[113,0,113],[113,0,113]], out:{id:131,count:1} },
+  { pattern:[[113,0,113],[113,0,113],[0,0,0]], out:{id:132,count:1} },
+  { pattern:[[114,114,114],[114,0,114],[0,0,0]], out:{id:133,count:1} },
+  { pattern:[[114,0,114],[114,114,114],[114,114,114]], out:{id:134,count:1} },
+  { pattern:[[114,114,114],[114,0,114],[114,0,114]], out:{id:135,count:1} },
+  { pattern:[[114,0,114],[114,0,114],[0,0,0]], out:{id:136,count:1} },
+  { pattern:[[115,115,115],[115,0,115],[0,0,0]], out:{id:137,count:1} },
+  { pattern:[[115,0,115],[115,115,115],[115,115,115]], out:{id:138,count:1} },
+  { pattern:[[115,115,115],[115,0,115],[115,0,115]], out:{id:139,count:1} },
+  { pattern:[[115,0,115],[115,0,115],[0,0,0]], out:{id:140,count:1} },
   // glass -> not craftable here (needs furnace smelting, kept simple/omitted)
   // bed: 3 wool over 3 planks
   { pattern:[[31,31,31],[8,8,8],[0,0,0]], out:{id:150,count:1} },
@@ -4755,6 +4843,7 @@ class Game{
     this.inventoryCounts = {}; // id -> count (unlimited-ish for creative, tracked anyway)
     this.hotbar.forEach(id=> this.inventoryCounts[id] = 99);
     this.toolDurability = {}; // itemId -> remaining uses
+    this.armor = { head:0, chest:0, legs:0, feet:0 }; // equipped armor item ids (durability lives in toolDurability)
     this.mining = null; // {x,y,z,id,t} while holding the break button
     this.mineHeld = false; // true from mousedown/touchstart until mouseup/touchend/blur — lets mining retarget on look-away instead of stopping
     this.craftGrid = [0,0,0,0,0,0,0,0,0]; // 3x3 flat, ids (0=empty), consumed from inventory on craft
@@ -6732,6 +6821,7 @@ class Game{
     const grid = document.getElementById('invGrid');
     grid.innerHTML='';
     this.renderHotbarEditor();
+    this.updateArmorUI();
     const invHint = document.getElementById('invHint');
     this._initCraftUI();
     // Survival: clicking empty space in the inventory drops the held stack back in.
@@ -7164,7 +7254,7 @@ class Game{
     if(GAME_MODE==='creative') return;
     const heldId = this.selectedBlock;
     const item = ITEMS[heldId];
-    if(!item || item.durability===undefined) return;
+    if(!item || item.durability===undefined || item.armorSlot) return;
     this.toolDurability[heldId] = (this.toolDurability[heldId]===undefined?item.durability:this.toolDurability[heldId]) - 1;
     if(this.toolDurability[heldId]<=0){
       delete this.toolDurability[heldId];
@@ -7251,6 +7341,11 @@ class Game{
       const hb = hit && BLOCKS[hit.id];
       const interactive = !!(hb && (hit.id===18 || hb.isFurnace || hb.bedPart || hb.doorHalf));
       if(!interactive){ this.tryEat(); return; }
+    }
+    if(ITEMS[this.selectedBlock] && ITEMS[this.selectedBlock].armorSlot){
+      const hb3 = hit && BLOCKS[hit.id];
+      const interactive3 = !!(hb3 && (hit.id===18 || hb3.isFurnace || hb3.bedPart || hb3.doorHalf));
+      if(!interactive3){ this.equipHeldArmor(); return; }
     }
     if(ITEMS[this.selectedBlock] && ITEMS[this.selectedBlock].bucket){
       const hb2 = hit && BLOCKS[hit.id];
@@ -7837,6 +7932,114 @@ class Game{
     if(document.getElementById('inventoryPanel').style.display==='flex') this._refreshAll();
   }
 
+  /* ---------------- Armor ----------------
+     Right-click armor to wear it (the piece you were wearing goes back to your inventory); click a
+     worn piece in the inventory to take it off. Every point of defence cuts incoming damage by 4%
+     (max 80%), and each hit wears the worn pieces down. */
+  armorPoints(){
+    let pts = 0;
+    for(const sl of ARMOR_SLOTS){ const id = this.armor[sl]; if(id && ITEMS[id]) pts += ITEMS[id].defense || 0; }
+    return pts;
+  }
+  armorCode(){
+    let code = 0;
+    ARMOR_SLOTS.forEach((sl,i)=>{ const it = ITEMS[this.armor[sl]]; if(it) code |= (ARMOR_TIER_IDX[it.armorTier]||0) << (i*2); });
+    return code;
+  }
+  _sanitizeArmor(a){
+    const out = { head:0, chest:0, legs:0, feet:0 };
+    if(a && typeof a === 'object') for(const sl of ARMOR_SLOTS){
+      const id = Number(a[sl]);
+      if(ITEMS[id] && ITEMS[id].armorSlot === sl) out[sl] = id;
+    }
+    return out;
+  }
+  equipHeldArmor(){
+    const id = this.selectedBlock, it = ITEMS[id];
+    if(!it || !it.armorSlot || this.dead) return false;
+    const creative = GAME_MODE === 'creative';
+    if(!creative && (this.inventoryCounts[id]||0) <= 0) return true;
+    const old = this.armor[it.armorSlot];
+    this.armor[it.armorSlot] = id;
+    if(!creative){
+      this.inventoryCounts[id]--;
+      if(this.inventoryCounts[id] <= 0){
+        delete this.inventoryCounts[id];
+        const si = this.hotbar.indexOf(id); if(si !== -1) this.hotbar[si] = 0;
+        this.selectedBlock = 0;
+      }
+      if(old){ this.inventoryCounts[old] = (this.inventoryCounts[old]||0) + 1; this.addToHotbar(old); }
+    }
+    this._swingOnce();
+    this.updateArmorUI(); this.updateHotbarUI();
+    if(document.getElementById('inventoryPanel').style.display==='flex') this._refreshAll();
+    return true;
+  }
+  unequipArmor(slot){
+    const old = this.armor[slot];
+    if(!old) return;
+    this.armor[slot] = 0;
+    this.inventoryCounts[old] = (this.inventoryCounts[old]||0) + 1;
+    this.addToHotbar(old);
+    this.updateArmorUI(); this.updateHotbarUI();
+    if(document.getElementById('inventoryPanel').style.display==='flex') this._refreshAll();
+  }
+  _wearArmor(rawDmg){
+    const n = Math.max(1, Math.floor(rawDmg/4));
+    let broke = false;
+    for(const sl of ARMOR_SLOTS){
+      const id = this.armor[sl]; if(!id) continue;
+      const def = ITEMS[id];
+      const cur = this.toolDurability[id] === undefined ? def.durability : this.toolDurability[id];
+      const left = cur - n;
+      if(left <= 0){
+        delete this.toolDurability[id]; this.armor[sl] = 0; broke = true;
+        this.showCenterMsg('Your ' + def.name.replace(/_/g,' ') + ' broke', 1600);
+      } else this.toolDurability[id] = left;
+    }
+    this.updateArmorUI(broke);
+  }
+  updateArmorUI(){
+    const pts = this.armorPoints();
+    const row = document.getElementById('armorRow');
+    if(row){
+      row.innerHTML = '';
+      row.style.display = pts > 0 ? 'flex' : 'none';
+      for(let i=0;i<10;i++){
+        const v = pts - i*2;
+        const img = document.createElement('img');
+        img.className = 'heart';
+        img.src = armorPipDataUrl(v>=2 ? 'full' : v===1 ? 'half' : 'empty');
+        row.appendChild(img);
+      }
+    }
+    const box = document.getElementById('armorSlots');
+    if(box){
+      box.innerHTML = '';
+      const labels = { head:'Head', chest:'Chest', legs:'Legs', feet:'Feet' };
+      for(const sl of ARMOR_SLOTS){
+        const id = this.armor[sl];
+        const slot = document.createElement('div');
+        slot.className = 'hotslot';
+        slot.title = id ? (ITEMS[id].name.replace(/_/g,' ') + ' — click to take off') : labels[sl];
+        if(id){
+          const img = document.createElement('img'); img.src = iconDataUrl(id); slot.appendChild(img);
+          const def = ITEMS[id], cur = this.toolDurability[id] === undefined ? def.durability : this.toolDurability[id];
+          if(cur < def.durability) slot.appendChild(makeDurBar(cur, def.durability));
+          slot.onclick = ()=> this.unequipArmor(sl);
+        } else {
+          slot.style.opacity = '0.45'; slot.style.fontSize = '10px'; slot.style.color = '#8892ab'; slot.style.cursor = 'default';
+          slot.textContent = labels[sl];
+        }
+        box.appendChild(slot);
+      }
+      const ptsEl = document.getElementById('armorPts');
+      if(ptsEl) ptsEl.textContent = pts > 0 ? '(' + pts + ' defence)' : '';
+    }
+    // what everyone sees: tint my own model, and tell the room
+    setModelArmor(this.selfModel, this.armorCode());
+  }
+
   trySpawnMobs(delta){
     // Passive animals: keep a small population loosely near the player, on
     // grass, in daylight-agnostic fashion (they just don't like to spawn at
@@ -8273,7 +8476,7 @@ class Game{
       localStorage.setItem('vf_room_' + WORLD_ID, JSON.stringify({
         pos:{ x:this.pos.x, y:this.pos.y, z:this.pos.z }, yaw:this.yaw, pitch:this.pitch,
         hotbar:this.hotbar, selectedBlock:this.selectedBlock, inventoryCounts:this.inventoryCounts,
-        toolDurability:this.toolDurability, health:this.health, maxHealth:this.maxHealth,
+        toolDurability:this.toolDurability, armor:this.armor, health:this.health, maxHealth:this.maxHealth,
         food:this.food, saturation:this.saturation, savedAt:Date.now()
       }));
       return true;
@@ -8304,6 +8507,7 @@ class Game{
       hotbar: this.hotbar,
       inventoryCounts: this.inventoryCounts,
       toolDurability: this.toolDurability,
+      armor: this.armor,
       health: this.health, maxHealth: this.maxHealth,
       food: this.food, saturation: this.saturation,
       blockDiffs: this.blockDiffs,
@@ -8876,6 +9080,7 @@ class Game{
     built.group.visible = false;
     this.scene.add(built.group);
     this.selfModel = built;
+    setModelArmor(built, this.armorCode());
     this.viewMode = 0; // 0 first person, 1 behind, 2 in front
     this._selfSwing = 0;
   }
@@ -9399,10 +9604,11 @@ class Game{
       moving: (Math.abs(this.vel.x)+Math.abs(this.vel.z))>0.1,
       swimming: !!this.inWater,
       held: sanitizeHeldId(this.selectedBlock),
+      armor: this.armorCode(),
     });
     // If the database rules don't allow the optional "held" field, the whole write
     // is rejected and multiplayer dies. Detect that once, drop the field, carry on.
-    const stripHeld = (rec)=>{ if(this._noHeldSync) delete rec.held; return rec; };
+    const stripHeld = (rec)=>{ if(this._noHeldSync){ delete rec.held; delete rec.armor; } return rec; };
     const onWriteFail = (err, retry)=>{
       const denied = err && /permission|denied|validat/i.test(String(err.code||'') + ' ' + String(err.message||''));
       if(denied && !this._noHeldSync){
@@ -9546,6 +9752,7 @@ class Game{
       heldId: 0, heldObj: null, lastData: data, heldRaw: data.held,
     });
     setModelHeld(this.otherPlayers.get(uid), data.held);
+    setModelArmor(this.otherPlayers.get(uid), data.armor);
   }
   _updateOtherPlayer(uid, data){
     const p = this.otherPlayers.get(uid);
@@ -9576,6 +9783,7 @@ class Game{
     p.name = data.name||p.name; p.playerId = data.playerId||p.playerId;
     p.lastData = data; p.heldRaw = data.held;
     setModelHeld(p, data.held);
+    setModelArmor(p, data.armor);
   }
   _removeOtherPlayer(uid){
     const p = this.otherPlayers.get(uid);
@@ -9911,6 +10119,11 @@ class Game{
   damage(amount, cause){
     if(GAME_MODE==='creative' || this.dead || amount<=0) return;
     if(this.invulnT>0) return;
+    // armor soaks up hits from mobs, players and cacti (not falling, starvation or the void)
+    if(cause && (/^Slain by/.test(cause) || /^Pricked/.test(cause))){
+      const pts = this.armorPoints();
+      if(pts > 0){ const raw = amount; amount = raw*(1-Math.min(0.8, pts*0.04)); this._wearArmor(raw); }
+    }
     this._deathCause = cause || null;
     this.health = Math.max(0, this.health-amount);
     this.invulnT = 0.5; // half-second of i-frames, same spirit as classic block games
@@ -10080,10 +10293,21 @@ class Game{
         delay: 3, magnet: false
       });
     });
+    for(const sl of ARMOR_SLOTS){
+      const id = this.armor[sl]; if(!id) continue;
+      const def = ITEMS[id], a = Math.random()*Math.PI*2, sp = 1.5 + Math.random()*2.5;
+      this._spawnDrop(id, 1, this.toolDurability[id] === undefined ? def.durability : this.toolDurability[id], {
+        pos: new THREE.Vector3(at.x, at.y+0.8, at.z),
+        vel: new THREE.Vector3(Math.cos(a)*sp, 4+Math.random()*2, Math.sin(a)*sp),
+        delay: 3, magnet: false
+      });
+    }
+    this.armor = { head:0, chest:0, legs:0, feet:0 };
     this.hotbar = [0,0,0,0,0,0,0,0,0];
     this.inventoryCounts = {};
     this.toolDurability = {};
     this.selectedBlock = 0;
+    this.updateArmorUI();
     this.updateHotbarUI();
     this._refreshAll();
   }
@@ -10147,7 +10371,7 @@ class Game{
     row.innerHTML = '';
     const totalHearts = this.maxHealth/2;
     for(let i=0;i<totalHearts;i++){
-      const heartVal = this.health - i*2; // 2=full, 1=half, <=0=empty
+      const heartVal = Math.ceil(this.health - 1e-6) - i*2; // 2=full, 1=half, <=0=empty (armor can leave fractions)
       const img = document.createElement('img');
       img.className = 'heart';
       img.src = heartIconDataUrl(heartVal>=2 ? 'full' : heartVal===1 ? 'half' : 'empty');
@@ -10161,6 +10385,7 @@ class Game{
     this._frameCount=0; this._fpsTimer=0; this.fps=0;
     this.updateHealthUI();
     this.updateHungerUI();
+    this.updateArmorUI();
     // Periodic autosave for offline worlds, so progress isn't lost if the
     // tab is closed without using Save & Quit. Silent unless it fails —
     // showSaveToast still pops the small bottom-of-screen indicator.
@@ -10629,6 +10854,26 @@ const ItemIconPainters = {
     ctx.fillStyle='#b97840'; ctx.beginPath(); ctx.ellipse(13,13,3,2,0.3,0,Math.PI*2); ctx.fill();
   },
 };
+
+// Armor icons: drawn here until assets/items/<id>.png (or <name>.png) exists
+(function(){
+  const cols = { iron:['#d9dce2','#8e939c'], gold:['#f6cf3f','#a9801a'], diamond:['#55e8d5','#1f9c8e'] };
+  const shapes = {
+    helmet(c,d){ return [[c,[8,10,16,6]],[c,[6,14,4,10]],[c,[22,14,4,10]],[d,[10,16,12,3]],[c,[6,12,20,3]]]; },
+    chestplate(c,d){ return [[c,[6,6,20,20]],[c,[2,6,6,10]],[c,[24,6,6,10]],[d,[13,6,6,4]],[d,[8,18,16,2]]]; },
+    leggings(c,d){ return [[c,[7,6,18,8]],[c,[7,14,8,13]],[c,[17,14,8,13]],[d,[7,6,18,2]],[d,[15,14,2,13]]]; },
+    boots(c,d){ return [[c,[5,9,8,14]],[c,[19,9,8,14]],[c,[3,20,10,6]],[c,[19,20,10,6]],[d,[5,23,8,3]],[d,[19,23,8,3]]]; }
+  };
+  for(const t in cols) for(const n in shapes){
+    ItemIconPainters[t+'_'+n] = function(ctx){
+      const [c,d] = cols[t];
+      const rects = shapes[n](c,d);
+      ctx.fillStyle='rgba(0,0,0,0.55)';
+      rects.forEach(([,r])=>ctx.fillRect(r[0]-1,r[1]-1,r[2]+2,r[3]+2));
+      rects.forEach(([col,r])=>{ ctx.fillStyle=col; ctx.fillRect(r[0],r[1],r[2],r[3]); });
+    };
+  }
+})();
 // Hardcoded per-tool icon images — baked into the game itself (not user-editable
 // at runtime; distinct from the removed custom-texture panel). Each tool gets
 // its own distinct image instead of sharing the generic procedural painter.
@@ -11570,6 +11815,7 @@ async function launchGame(){
     gameInstance.selectedSlot = restoredSlotIdx !== -1 ? restoredSlotIdx : 0; }
     gameInstance.inventoryCounts = PENDING_LOAD.inventoryCounts || gameInstance.inventoryCounts;
     gameInstance.toolDurability = PENDING_LOAD.toolDurability || gameInstance.toolDurability;
+    gameInstance.armor = gameInstance._sanitizeArmor(PENDING_LOAD.armor);
     if(Number.isFinite(PENDING_LOAD.food)){
       gameInstance.food = Math.max(0, Math.min(gameInstance.maxFood, PENDING_LOAD.food));
       gameInstance.saturation = Number.isFinite(PENDING_LOAD.saturation) ? Math.max(0, Math.min(gameInstance.food, PENDING_LOAD.saturation)) : 0;
@@ -11634,6 +11880,7 @@ async function launchGame(){
           if(Array.isArray(st.hotbar) && st.hotbar.length === gameInstance.hotbar.length) gameInstance.hotbar = st.hotbar;
           if(st.inventoryCounts) gameInstance.inventoryCounts = st.inventoryCounts;
           if(st.toolDurability) gameInstance.toolDurability = st.toolDurability;
+          gameInstance.armor = gameInstance._sanitizeArmor(st.armor);
           gameInstance.selectedBlock = Number.isFinite(st.selectedBlock) ? st.selectedBlock : gameInstance.selectedBlock;
           const si = gameInstance.hotbar.indexOf(gameInstance.selectedBlock);
           gameInstance.selectedSlot = si !== -1 ? si : 0;
